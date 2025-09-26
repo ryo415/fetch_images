@@ -5,7 +5,7 @@ require 'uri'
 
 module Fantia
   class Authenticator
-    SIGN_IN_URI = URI('https://fantia.jp/sign_in')
+    SIGN_IN_URI = URI('https://fantia.jp/sessions/signin')
 
     def initialize(client:, email:, password:, otp: nil, otp_provider: nil, logger: nil)
       @client = client
