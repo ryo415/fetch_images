@@ -1,6 +1,13 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
+begin
+  require 'bundler/setup'
+rescue LoadError
+  warn 'This script requires Bundler. Install it with `gem install bundler`.'
+  exit 1
+end
+
 require 'optparse'
 require 'uri'
 require 'io/console'
@@ -8,7 +15,7 @@ require 'io/console'
 begin
   require 'nokogiri'
 rescue LoadError
-  warn 'This script requires the nokogiri gem. Install it with `gem install nokogiri`.'
+  warn 'This script requires the nokogiri gem. Install it by running `bundle install`.'
   exit 1
 end
 
