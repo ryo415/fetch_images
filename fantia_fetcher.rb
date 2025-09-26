@@ -27,7 +27,10 @@ options = {
   verbose: false,
   email: nil,
   password: nil,
-  password_mode: nil
+  password_mode: nil,
+  otp: nil,
+  otp_mode: nil,
+  otp_provider: nil
 }
 
 parser = OptionParser.new do |opts|
@@ -57,6 +60,18 @@ parser = OptionParser.new do |opts|
     options[:password_mode] = :prompt
   end
 
+  opts.on('--otp CODE', 'Fantia two-factor authentication code') do |otp|
+    options[:otp] = otp
+  end
+
+  opts.on('--otp-stdin', 'Read the Fantia two-factor authentication code from standard input') do
+    options[:otp_mode] = :stdin
+  end
+
+  opts.on('--otp-prompt', 'Prompt for the Fantia two-factor authentication code (input hidden)') do
+    options[:otp_mode] = :prompt
+  end
+
   opts.on('-v', '--[no-]verbose', 'Print progress information') do |verbose|
     options[:verbose] = verbose
   end
@@ -84,6 +99,23 @@ when :prompt
   options[:password] = input.chomp
 end
 
+case options[:otp_mode]
+when :stdin
+  input = STDIN.gets
+  raise ArgumentError, 'No two-factor authentication code provided on STDIN.' unless input
+
+  options[:otp] = input.chomp
+when :prompt
+  options[:otp_provider] = lambda do
+    print 'Fantia two-factor authentication code: '
+    input = STDIN.noecho(&:gets)
+    puts
+    raise ArgumentError, 'No two-factor authentication code provided.' unless input
+
+    input.chomp
+  end
+end
+
 if ARGV.empty?
   warn parser.to_s
   exit 1
@@ -108,6 +140,8 @@ if manual_cookie.nil?
       client: client,
       email: email,
       password: password,
+      otp: options[:otp],
+      otp_provider: options[:otp_provider],
       logger: logger
     )
   elsif email || password
