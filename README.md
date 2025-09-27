@@ -31,11 +31,11 @@ bundle exec ruby fantia_fetcher.rb [options] ARTICLE_URL
 - `--password-stdin` – Read the Fantia password from standard input (e.g., `echo 'pass' | ...`).
 - `--password-prompt` – Prompt for the Fantia password with input hidden.
 - `--otp CODE` – Supply a Fantia two-factor authentication (2FA) one-time password directly.
-- `--otp-stdin` – Read the Fantia 2FA code from standard input.
+- `--otp-stdin` – Read the Fantia 2FA code from standard input when Fantia asks for it.
 - `--otp-prompt` – Prompt for the Fantia 2FA code with input hidden when the challenge appears.
 - `-v`, `--[no-]verbose` – Enable verbose logging to see progress messages.
 
-If you provide both an email and password (or supply a password via stdin/prompt), the script performs the Fantia sign-in flow automatically before downloading images. This avoids the need to copy cookies manually. Accounts protected by two-factor authentication should also pass one of the OTP options so the script can submit the additional challenge when Fantia prompts for it.
+If you provide both an email and password (or supply a password via stdin/prompt), the script performs the Fantia sign-in flow automatically before downloading images. This avoids the need to copy cookies manually. Fantia sends two-factor authentication codes by email after the initial login attempt. When the script detects this challenge it will, by default, prompt for the code in interactive terminals so you can paste it once it arrives. In non-interactive scenarios, supply the OTP using one of the options above once you receive the email.
 
 ### Example
 
@@ -43,4 +43,4 @@ If you provide both an email and password (or supply a password via stdin/prompt
 bundle exec ruby fantia_fetcher.rb -o downloads -v --email you@example.com --password-prompt --otp-prompt https://fantia.jp/posts/123456
 ```
 
-This command prompts for your Fantia password and one-time password, logs in with the supplied email, and downloads all images referenced by the article into the `downloads` directory while showing progress logs.
+This command prompts for your Fantia password and, when Fantia emails a one-time password, requests the code before downloading all images referenced by the article into the `downloads` directory while showing progress logs.

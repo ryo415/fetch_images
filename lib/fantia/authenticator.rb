@@ -50,7 +50,7 @@ module Fantia
       body = response.body
       doc = Nokogiri::HTML(body)
       if (two_factor_form = locate_two_factor_form(doc))
-        log('Fantia requested a two-factor authentication code')
+        log('Fantia requested a two-factor authentication code via email')
         complete_two_factor_challenge(two_factor_form, login_uri)
         return true if @authenticated
 
@@ -91,7 +91,7 @@ module Fantia
     def complete_two_factor_challenge(form, login_uri)
       otp_code = obtain_otp
       if otp_code.to_s.strip.empty?
-        raise 'A two-factor authentication code is required. Provide one with --otp or --otp-prompt.'
+        raise 'Fantia sent a two-factor authentication code via email. Provide it with --otp or run the script interactively.'
       end
 
       target_uri = form['action'].to_s.strip
@@ -149,6 +149,7 @@ module Fantia
 
       return unless @otp_provider
 
+      log('Waiting for Fantia two-factor authentication code input')
       @otp = @otp_provider.call
     end
 

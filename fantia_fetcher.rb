@@ -101,13 +101,28 @@ end
 
 case options[:otp_mode]
 when :stdin
-  input = STDIN.gets
-  raise ArgumentError, 'No two-factor authentication code provided on STDIN.' unless input
+  options[:otp_provider] = lambda do
+    input = STDIN.gets
+    raise ArgumentError, 'No two-factor authentication code provided on STDIN.' unless input
 
-  options[:otp] = input.chomp
+    input.chomp
+  end
 when :prompt
   options[:otp_provider] = lambda do
-    print 'Fantia two-factor authentication code: '
+    print 'Fantia two-factor authentication code (check your email): '
+    input = STDIN.noecho(&:gets)
+    puts
+    raise ArgumentError, 'No two-factor authentication code provided.' unless input
+
+    input.chomp
+  end
+end
+
+options[:otp] = nil if options[:otp].to_s.strip.empty?
+
+if options[:otp].nil? && options[:otp_provider].nil? && STDIN.tty?
+  options[:otp_provider] = lambda do
+    print 'Fantia two-factor authentication code (check your email): '
     input = STDIN.noecho(&:gets)
     puts
     raise ArgumentError, 'No two-factor authentication code provided.' unless input
