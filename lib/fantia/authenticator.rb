@@ -6,6 +6,7 @@ require 'uri'
 module Fantia
   class Authenticator
     SIGN_IN_URI = URI('https://fantia.jp/sessions/signin')
+    ACCOUNT_HOME_URI = URI('https://fantia.jp/mypage')
 
     def initialize(client:, email:, password:, otp: nil, otp_provider: nil, logger: nil)
       @client = client
@@ -89,7 +90,9 @@ module Fantia
 
     def complete_two_factor_challenge(form, login_uri)
       otp_code = obtain_otp
-      raise 'A two-factor authentication code is required. Provide one with --otp or --otp-prompt.' if otp_code.to_s.strip.empty?
+      if otp_code.to_s.strip.empty?
+        raise 'A two-factor authentication code is required. Provide one with --otp or --otp-prompt.'
+      end
 
       target_uri = form['action'].to_s.strip
       target_uri = target_uri.empty? ? login_uri : URI.join(login_uri, target_uri)
@@ -108,7 +111,7 @@ module Fantia
         raise "Two-factor authentication failed: #{message}"
       end
 
-      @authenticated = true
+      verify_login!
     end
 
     def build_two_factor_payload(form, otp_code)
@@ -133,8 +136,12 @@ module Fantia
 
     def follow_redirect(response, base_uri)
       location = response['location']
-      @client.get(URI.join(base_uri, location)) if location
-      @authenticated = true
+      if location
+        target = URI.join(base_uri, location)
+        @client.get(target)
+      end
+
+      verify_login!
     end
 
     def obtain_otp
@@ -157,6 +164,18 @@ module Fantia
       return error unless error.nil? || error.empty?
 
       'Invalid or expired two-factor authentication code.'
+    end
+
+    def verify_login!
+      log('Verifying Fantia login session')
+      html = @client.get(ACCOUNT_HOME_URI)
+      doc = Nokogiri::HTML(html)
+
+      if locate_login_form(doc)
+        raise 'Fantia login verification failed. Please confirm your credentials or two-factor authentication code.'
+      end
+
+      @authenticated = true
     end
 
     def log(message)

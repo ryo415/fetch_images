@@ -7,6 +7,7 @@ module Fantia
   class ImageExtractor
     IMAGE_ATTRIBUTES = %w[data-src data-original data-url data-image data-srcset data-original-src srcset src].freeze
     IMAGE_EXTENSION_REGEX = /\A\.(png|jpe?g|gif|webp|bmp|svg)\z/i.freeze
+    SCRIPT_IMAGE_REGEX = %r{(?:(?:https?:)?//|/)[^"'\s)]+?\.(?:png|jpe?g|gif|webp|bmp|svg)(?:\?[^"'\s)]*)?}i.freeze
 
     def initialize(logger: nil)
       @logger = logger
@@ -37,6 +38,8 @@ module Fantia
           log("Skipping invalid download URL: #{href}")
         end
       end
+
+      extract_from_scripts(doc, base_uri, urls)
 
       urls.uniq
     end
@@ -78,6 +81,27 @@ module Fantia
 
     def image_extension?(uri)
       File.extname(uri.path).match?(IMAGE_EXTENSION_REGEX)
+    end
+
+    def extract_from_scripts(doc, base_uri, urls)
+      doc.css('script').each do |script|
+        content = script.text
+        next if content.to_s.empty?
+
+        normalized = content.gsub('\\/', '/')
+
+        normalized.scan(SCRIPT_IMAGE_REGEX) do |match|
+          candidate = match.is_a?(Array) ? match.compact.first : match
+          next unless candidate
+
+          begin
+            absolute = URI.join(base_uri, candidate)
+            urls << absolute
+          rescue URI::Error
+            log("Skipping invalid script image URL: #{candidate}")
+          end
+        end
+      end
     end
 
     def log(message)
