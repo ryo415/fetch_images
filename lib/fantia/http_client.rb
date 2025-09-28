@@ -61,7 +61,7 @@ module Fantia
           raise "Redirect missing location header for #{uri}" unless location
 
           new_uri = URI.join(uri, location)
-          download(new_uri, target, depth + 1)
+          download(new_uri, target, depth + 1, referer: referer)
         else
           warn "Failed to download #{uri} (status: #{response.code})"
         end

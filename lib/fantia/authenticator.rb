@@ -78,8 +78,8 @@ module Fantia
     end
 
     def locate_two_factor_form(doc)
-      doc.css('form[action][method="post"]').find do |candidate|
-        candidate.css('input[name]').any? { |input| input['name'].to_s.downcase.include?('otp') }
+      doc.css('form[action]').find do |candidate|
+        candidate.css('input').any? { |input| two_factor_input?(input) }
       end
     end
 
@@ -124,7 +124,7 @@ module Fantia
         name = input['name']
         next if name.to_s.empty?
 
-        payload[name] = if name.downcase.include?('otp')
+        payload[name] = if two_factor_input?(input)
                           otp_code
                         else
                           input['value'] || ''
@@ -132,6 +132,28 @@ module Fantia
       end
 
       payload
+    end
+
+    def two_factor_input?(input)
+      type = input['type']&.downcase
+      return false if %w[hidden submit button image].include?(type)
+
+      name = input['name'].to_s
+      autocomplete = input['autocomplete'].to_s
+
+      return true if autocomplete.match?(/one-time-code/i)
+
+      return false if name.empty?
+
+      name_patterns = [
+        /otp/i,
+        /two[_-]?factor/i,
+        /one[_-]?time/i,
+        /(confirmation|verification|auth(?:entication)?)_?code/i,
+        /email_confirmation_code/i
+      ]
+
+      name_patterns.any? { |pattern| name.match?(pattern) }
     end
 
     def follow_redirect(response, base_uri)
