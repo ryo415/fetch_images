@@ -150,7 +150,8 @@ module Fantia
         /two[_-]?factor/i,
         /one[_-]?time/i,
         /(confirmation|verification|auth(?:entication)?)_?code/i,
-        /email_confirmation_code/i
+        /email_confirmation_code/i,
+        /(confirmation|verification|auth(?:entication)?|email)[_-]?token/i
       ]
 
       name_patterns.any? { |pattern| name.match?(pattern) }
