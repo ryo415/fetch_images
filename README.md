@@ -35,7 +35,7 @@ bundle exec ruby fantia_fetcher.rb [options] ARTICLE_URL
 - `--otp-prompt` – Prompt for the Fantia 2FA code with input hidden when the challenge appears.
 - `-v`, `--[no-]verbose` – Enable verbose logging to see progress messages.
 
-If you provide both an email and password (or supply a password via stdin/prompt), the script performs the Fantia sign-in flow automatically before downloading images. This avoids the need to copy cookies manually. Fantia sends two-factor authentication codes by email after the initial login attempt. When the script detects this challenge it will, by default, prompt for the code in interactive terminals so you can paste it once it arrives. In non-interactive scenarios, supply the OTP using one of the options above once you receive the email.
+If you provide both an email and password (or supply a password via stdin/prompt), the script performs the Fantia sign-in flow automatically before downloading images. The authenticator verifies the session by loading your Fantia mypage so member-only content can be fetched reliably. Fantia sends two-factor authentication codes by email after the initial login attempt. When the script detects this challenge it will, by default, prompt for the code in interactive terminals so you can paste it once it arrives. In non-interactive scenarios, supply the OTP using one of the options above once you receive the email. The downloader also sends the article URL as the HTTP `Referer` header for each image request to match Fantia's access checks.
 
 ### Example
 

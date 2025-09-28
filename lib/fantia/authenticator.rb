@@ -88,17 +88,17 @@ module Fantia
       action.empty? ? SIGN_IN_URI : URI.join(SIGN_IN_URI, action)
     end
 
-    def complete_two_factor_challenge(form, login_uri)
+    def complete_two_factor_challenge(form, current_page_uri)
       otp_code = obtain_otp
       if otp_code.to_s.strip.empty?
         raise 'Fantia sent a two-factor authentication code via email. Provide it with --otp or run the script interactively.'
       end
 
       target_uri = form['action'].to_s.strip
-      target_uri = target_uri.empty? ? login_uri : URI.join(login_uri, target_uri)
+      target_uri = target_uri.empty? ? current_page_uri : URI.join(current_page_uri, target_uri)
 
       payload = build_two_factor_payload(form, otp_code)
-      response = @client.post_form(target_uri, payload, referer: login_uri)
+      response = @client.post_form(target_uri, payload, referer: current_page_uri)
 
       if response.is_a?(Net::HTTPRedirection)
         follow_redirect(response, target_uri)
@@ -136,12 +136,21 @@ module Fantia
 
     def follow_redirect(response, base_uri)
       location = response['location']
-      if location
-        target = URI.join(base_uri, location)
-        @client.get(target)
+      unless location
+        verify_login!
+        return
       end
 
-      verify_login!
+      target = URI.join(base_uri, location)
+      html = @client.get(target)
+      doc = Nokogiri::HTML(html)
+
+      if (two_factor_form = locate_two_factor_form(doc))
+        log('Fantia requested a two-factor authentication code via email')
+        complete_two_factor_challenge(two_factor_form, target)
+      else
+        verify_login!
+      end
     end
 
     def obtain_otp

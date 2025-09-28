@@ -40,11 +40,13 @@ module Fantia
       end
     end
 
-    def download(uri, target, depth = 0)
+    def download(uri, target, depth = 0, referer: nil)
       raise "Too many redirects while downloading #{uri}" if depth > 5
 
       request = Net::HTTP::Get.new(uri)
       apply_default_headers(request)
+      request['Referer'] = referer.to_s if referer
+      request['Accept'] = 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8'
 
       http_client_for(uri).request(request) do |response|
         store_cookies(response)

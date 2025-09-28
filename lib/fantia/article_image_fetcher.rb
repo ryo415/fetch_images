@@ -34,7 +34,7 @@ module Fantia
         filename = filename_for(uri, index)
         target = File.join(@output_dir, filename)
         log("Downloading #{uri} -> #{target}")
-        @client.download(uri, target)
+        @client.download(uri, target, referer: @url)
       end
     end
 
