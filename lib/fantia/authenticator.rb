@@ -27,9 +27,13 @@ module Fantia
       html = @client.get(SIGN_IN_URI)
       doc = Nokogiri::HTML(html)
       form = locate_login_form(doc)
-      raise 'Unable to locate sign-in form on Fantia.' unless form
+      unless form
+        log("No Fantia sign-in form detected. Available forms: #{doc.css('form[action]').map { |f| f['action'] || '(self)' }.join(', ')}")
+        raise 'Unable to locate sign-in form on Fantia.'
+      end
 
       login_uri = build_login_uri(form)
+      log("Located Fantia sign-in form posting to #{login_uri}")
       token = form.at_css('input[name="authenticity_token"]')&.[]('value')
       raise 'Unable to locate authenticity token for sign-in.' unless token
 
@@ -96,11 +100,13 @@ module Fantia
 
       target_uri = form['action'].to_s.strip
       target_uri = target_uri.empty? ? current_page_uri : URI.join(current_page_uri, target_uri)
+      log("Submitting two-factor authentication code to #{target_uri}")
 
       payload = build_two_factor_payload(form, otp_code)
       response = @client.post_form(target_uri, payload, referer: current_page_uri)
 
       if response.is_a?(Net::HTTPRedirection)
+        log('Two-factor submission redirected, following next step')
         follow_redirect(response, target_uri)
         return
       end
@@ -111,6 +117,7 @@ module Fantia
         raise "Two-factor authentication failed: #{message}"
       end
 
+      log('Two-factor authentication form accepted, verifying session')
       verify_login!
     end
 
@@ -141,7 +148,10 @@ module Fantia
       name = input['name'].to_s
       autocomplete = input['autocomplete'].to_s
 
-      return true if autocomplete.match?(/one-time-code/i)
+      if autocomplete.match?(/one-time-code/i)
+        log_two_factor_match(input, 'autocomplete attribute one-time-code')
+        return true
+      end
 
       return false if name.empty?
 
@@ -154,17 +164,24 @@ module Fantia
         /(confirmation|verification|auth(?:entication)?|email)[_-]?token/i
       ]
 
-      name_patterns.any? { |pattern| name.match?(pattern) }
+      name_patterns.any? do |pattern|
+        next false unless name.match?(pattern)
+
+        log_two_factor_match(input, "name pattern #{pattern.inspect}")
+        true
+      end
     end
 
     def follow_redirect(response, base_uri)
       location = response['location']
       unless location
+        log('Redirect response missing location header; falling back to session verification')
         verify_login!
         return
       end
 
       target = URI.join(base_uri, location)
+      log("Following redirect to #{target}")
       html = @client.get(target)
       doc = Nokogiri::HTML(html)
 
@@ -172,14 +189,21 @@ module Fantia
         log('Fantia requested a two-factor authentication code via email')
         complete_two_factor_challenge(two_factor_form, target)
       else
+        log("No two-factor form detected after redirect to #{target}")
         verify_login!
       end
     end
 
     def obtain_otp
-      return @otp unless @otp.to_s.strip.empty?
+      unless @otp.to_s.strip.empty?
+        log('Using pre-supplied two-factor authentication code')
+        return @otp
+      end
 
-      return unless @otp_provider
+      unless @otp_provider
+        log('No OTP provider configured; cannot obtain two-factor authentication code automatically')
+        return
+      end
 
       log('Waiting for Fantia two-factor authentication code input')
       @otp = @otp_provider.call
@@ -205,14 +229,22 @@ module Fantia
       doc = Nokogiri::HTML(html)
 
       if locate_login_form(doc)
+        log('Fantia login verification failed: login form still present on account page')
         raise 'Fantia login verification failed. Please confirm your credentials or two-factor authentication code.'
       end
 
+      log('Fantia login verification succeeded')
       @authenticated = true
     end
 
     def log(message)
       @logger&.call(message)
+    end
+
+    def log_two_factor_match(input, reason)
+      name = input['name'] || '(unnamed)'
+      type = input['type'] || 'text'
+      log("Detected possible two-factor input #{name.inspect} (type: #{type}) via #{reason}")
     end
   end
 end

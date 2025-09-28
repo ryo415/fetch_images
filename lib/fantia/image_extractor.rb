@@ -15,6 +15,8 @@ module Fantia
 
     def extract(doc, base_uri)
       urls = []
+      img_matches = 0
+      link_matches = 0
 
       doc.css('img').each do |img|
         candidate = select_best_image_source(img)
@@ -22,6 +24,7 @@ module Fantia
 
         begin
           urls << URI.join(base_uri, candidate)
+          img_matches += 1
         rescue URI::Error
           log("Skipping invalid image URL: #{candidate}")
         end
@@ -33,13 +36,18 @@ module Fantia
 
         begin
           absolute = URI.join(base_uri, href)
-          urls << absolute if image_extension?(absolute)
+          if image_extension?(absolute)
+            urls << absolute
+            link_matches += 1
+          end
         rescue URI::Error
           log("Skipping invalid download URL: #{href}")
         end
       end
 
-      extract_from_scripts(doc, base_uri, urls)
+      script_matches = extract_from_scripts(doc, base_uri, urls)
+
+      log("Image extraction summary: #{img_matches} <img> source(s), #{link_matches} download link(s), #{script_matches} script reference(s)")
 
       urls.uniq
     end
@@ -84,6 +92,7 @@ module Fantia
     end
 
     def extract_from_scripts(doc, base_uri, urls)
+      matches = 0
       doc.css('script').each do |script|
         content = script.text
         next if content.to_s.empty?
@@ -97,11 +106,14 @@ module Fantia
           begin
             absolute = URI.join(base_uri, candidate)
             urls << absolute
+            matches += 1
           rescue URI::Error
             log("Skipping invalid script image URL: #{candidate}")
           end
         end
       end
+
+      matches
     end
 
     def log(message)

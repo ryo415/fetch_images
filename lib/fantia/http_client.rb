@@ -25,6 +25,7 @@ module Fantia
 
       response = http_client_for(uri).request(request)
       store_cookies(response)
+      log_http_result('GET', uri, response)
 
       case response
       when Net::HTTPRedirection
@@ -32,6 +33,7 @@ module Fantia
         raise "Redirect missing location header for #{uri}" unless location
 
         new_uri = URI.join(uri, location)
+        log("Following redirect to #{new_uri}")
         get(new_uri, depth + 1)
       when Net::HTTPSuccess
         response.body
@@ -47,20 +49,28 @@ module Fantia
       apply_default_headers(request)
       request['Referer'] = referer.to_s if referer
       request['Accept'] = 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8'
+      log("Downloading #{uri} (referer: #{referer || 'none'})")
 
       http_client_for(uri).request(request) do |response|
         store_cookies(response)
+        log_http_result('GET', uri, response)
 
         case response
         when Net::HTTPSuccess
           File.open(target, 'wb') do |file|
-            response.read_body { |chunk| file.write(chunk) }
+            total = 0
+            response.read_body do |chunk|
+              file.write(chunk)
+              total += chunk.bytesize
+            end
+            log("Saved #{target} (#{total} bytes)")
           end
         when Net::HTTPRedirection
           location = response['location']
           raise "Redirect missing location header for #{uri}" unless location
 
           new_uri = URI.join(uri, location)
+          log("Image download redirect to #{new_uri}")
           download(new_uri, target, depth + 1, referer: referer)
         else
           warn "Failed to download #{uri} (status: #{response.code})"
@@ -77,6 +87,7 @@ module Fantia
 
       response = http_client_for(uri).request(request)
       store_cookies(response)
+      log_http_result('POST', uri, response)
       response
     end
 
@@ -120,14 +131,20 @@ module Fantia
 
         if value.empty?
           @cookie_jar.delete(name)
+          log("Cleared cookie #{name}")
         else
           @cookie_jar[name] = value
+          log("Stored cookie #{name}")
         end
       end
     end
 
     def log(message)
       @logger&.call(message)
+    end
+
+    def log_http_result(method, uri, response)
+      log("#{method} #{uri} -> #{response.code} #{response.message}")
     end
   end
 end

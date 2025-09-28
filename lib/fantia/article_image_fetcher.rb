@@ -22,6 +22,7 @@ module Fantia
       html = @client.get(@url)
       doc = Nokogiri::HTML(html)
       image_urls = @extractor.extract(doc, @url)
+      log("Extracted #{image_urls.size} unique image URL(s) from article")
 
       if image_urls.empty?
         warn 'No images found in the supplied article.'
@@ -29,6 +30,7 @@ module Fantia
       end
 
       FileUtils.mkdir_p(@output_dir)
+      log("Ensured output directory exists: #{@output_dir}")
 
       image_urls.each_with_index do |uri, index|
         filename = filename_for(uri, index)
