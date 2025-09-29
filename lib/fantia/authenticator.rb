@@ -82,7 +82,7 @@ module Fantia
     end
 
     def locate_two_factor_form(doc)
-      doc.css('form[action]').find do |candidate|
+      doc.css('form').find do |candidate|
         candidate.css('input').any? { |input| two_factor_input?(input) }
       end
     end
@@ -134,7 +134,14 @@ module Fantia
         payload[name] = if two_factor_input?(input)
                           otp_code
                         else
-                          input['value'] || ''
+                          case name
+                          when 'user[email]'
+                            @email
+                          when 'user[password]'
+                            @password
+                          else
+                            input['value'] || ''
+                          end
                         end
       end
 
