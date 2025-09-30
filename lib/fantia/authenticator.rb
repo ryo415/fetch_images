@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'nokogiri'
+require 'set'
 require 'uri'
 
 module Fantia
@@ -51,17 +52,17 @@ module Fantia
         return true
       end
 
-      body = response.body
-      doc = Nokogiri::HTML(body)
-      if (two_factor_form = locate_two_factor_form(doc))
+      detection = detect_two_factor_challenge(response.body, login_uri)
+      if detection[:form]
         log('Fantia requested a two-factor authentication code via email')
-        complete_two_factor_challenge(two_factor_form, login_uri)
+        complete_two_factor_challenge(detection[:form], detection[:page_uri])
         return true if @authenticated
 
-        message = extract_two_factor_error(doc)
+        message = extract_two_factor_error(detection[:doc])
         raise "Two-factor authentication failed: #{message}"
       end
 
+      doc = detection[:doc]
       message = extract_login_error(doc)
       raise "Login failed: #{message}"
     end
@@ -78,12 +79,6 @@ module Fantia
       doc.css('form[action][method="post"]').find do |candidate|
         candidate.at_css('input[name="user[email]"]') &&
           candidate.at_css('input[name="user[password]"]')
-      end
-    end
-
-    def locate_two_factor_form(doc)
-      doc.css('form').find do |candidate|
-        candidate.css('input').any? { |input| two_factor_input?(input) }
       end
     end
 
@@ -111,9 +106,9 @@ module Fantia
         return
       end
 
-      doc = Nokogiri::HTML(response.body)
-      if locate_two_factor_form(doc)
-        message = extract_two_factor_error(doc)
+      detection = detect_two_factor_challenge(response.body, target_uri)
+      if detection[:form]
+        message = extract_two_factor_error(detection[:doc])
         raise "Two-factor authentication failed: #{message}"
       end
 
@@ -150,8 +145,6 @@ module Fantia
 
     def two_factor_input?(input)
       type = input['type']&.downcase
-      return false if %w[hidden submit button image].include?(type)
-
       name = input['name'].to_s
       autocomplete = input['autocomplete'].to_s
 
@@ -160,23 +153,19 @@ module Fantia
         return true
       end
 
-      return false if name.empty?
+      return false if %w[submit button image].include?(type)
 
-      name_patterns = [
-        /otp/i,
-        /two[_-]?factor/i,
-        /one[_-]?time/i,
-        /(confirmation|verification|auth(?:entication)?)_?code/i,
-        /email_confirmation_code/i,
-        /(confirmation|verification|auth(?:entication)?|email)[_-]?token/i
-      ]
+      candidate_strings = [name, input['id'], input['data-controller'], input['data-action'], input['class']].compact
+      candidate_strings.reject!(&:empty?)
 
-      name_patterns.any? do |pattern|
-        next false unless name.match?(pattern)
+      candidate_strings.each do |candidate|
+        next unless two_factor_identifier?(candidate)
 
-        log_two_factor_match(input, "name pattern #{pattern.inspect}")
-        true
+        log_two_factor_match(input, "attribute match #{candidate}")
+        return true
       end
+
+      false
     end
 
     def follow_redirect(response, base_uri)
@@ -190,11 +179,11 @@ module Fantia
       target = URI.join(base_uri, location)
       log("Following redirect to #{target}")
       html = @client.get(target)
-      doc = Nokogiri::HTML(html)
+      detection = detect_two_factor_challenge(html, target)
 
-      if (two_factor_form = locate_two_factor_form(doc))
+      if detection[:form]
         log('Fantia requested a two-factor authentication code via email')
-        complete_two_factor_challenge(two_factor_form, target)
+        complete_two_factor_challenge(detection[:form], detection[:page_uri])
       else
         log("No two-factor form detected after redirect to #{target}")
         verify_login!
@@ -252,6 +241,71 @@ module Fantia
       name = input['name'] || '(unnamed)'
       type = input['type'] || 'text'
       log("Detected possible two-factor input #{name.inspect} (type: #{type}) via #{reason}")
+    end
+
+    def detect_two_factor_challenge(html, current_page_uri, visited_frames = Set.new, depth = 0)
+      doc = Nokogiri::HTML(html)
+      form = locate_two_factor_form(doc)
+      return { form: form, doc: doc, page_uri: current_page_uri } if form
+
+      return { form: nil, doc: doc, page_uri: current_page_uri } if depth >= 5
+
+      frame_candidates = doc.css('turbo-frame[src], iframe[src]')
+      frame_candidates.each do |frame|
+        next unless possible_two_factor_frame?(frame)
+
+        src = frame['src'].to_s.strip
+        next if src.empty?
+
+        frame_uri = URI.join(current_page_uri, src)
+        key = frame_uri.to_s
+        next if visited_frames.include?(key)
+
+        visited_frames.add(key)
+        log("Fetching potential two-factor frame #{frame_uri}")
+        frame_html = @client.get(frame_uri)
+        detection = detect_two_factor_challenge(frame_html, frame_uri, visited_frames, depth + 1)
+        return detection if detection[:form]
+      end
+
+      { form: nil, doc: doc, page_uri: current_page_uri }
+    end
+
+    def locate_two_factor_form(doc)
+      doc.css('form').find do |candidate|
+        candidate.css('input').any? { |input| two_factor_input?(input) }
+      end
+    end
+
+    def possible_two_factor_frame?(frame)
+      attributes = [frame['id'], frame['src'], frame['name'], frame['class'], frame['data-controller']].compact.join(' ')
+      return true if attributes.match?(/two[_-]?factor|otp|one[_-]?time|email[_-]?confirmation|verification/i)
+
+      frame.text.match?(/二段階認証|ワンタイム|認証コード|確認コード/) # Japanese hints
+    end
+
+    def two_factor_identifier?(text)
+      normalized = text.dup
+      normalized.tr!('-', '_')
+      normalized.downcase!
+
+      return false if normalized.empty?
+      return false if normalized.include?('authenticity_token')
+
+      patterns = [
+        /\botp\b/,
+        /two_?factor/,
+        /one_?time/,
+        /email_?code/,
+        /(confirmation|verification)[_\-]?(code|token|number)/,
+        /email_?confirmation/,
+        /security_?code/,
+        /login_?code/,
+        /認証コード/,
+        /確認コード/
+      ]
+
+      patterns.any? { |pattern| normalized.match?(pattern) }
     end
   end
 end
