@@ -13,18 +13,29 @@ module Fantia
       @extractor = extractor
       @authenticator = authenticator
       @logger = logger
+      log("Initialized article image fetcher for #{@url}")
     end
 
     def run
       validate_url!
-      @authenticator&.authenticate!
+      log("Starting article fetch for #{@url}")
+
+      if @authenticator
+        log('Authenticator configured; attempting to sign in before fetching article')
+        @authenticator.authenticate!
+      else
+        log('No authenticator configured; proceeding with existing cookies only')
+      end
 
       html = @client.get(@url)
+      log("Fetched article HTML (#{html&.bytesize || 0} bytes)")
       doc = Nokogiri::HTML(html)
       image_urls = @extractor.extract(doc, @url)
       log("Extracted #{image_urls.size} unique image URL(s) from article")
+      log("First extracted URLs: #{image_urls.first(5).map(&:to_s).join(', ')}") unless image_urls.empty?
 
       if image_urls.empty?
+        log('Image extraction returned zero results')
         warn 'No images found in the supplied article.'
         return
       end

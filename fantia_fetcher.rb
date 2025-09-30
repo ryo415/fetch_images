@@ -151,6 +151,7 @@ if manual_cookie.nil?
   password = options[:password]
 
   if email && password
+    logger&.call('Configuring Fantia authenticator with supplied email/password credentials')
     authenticator = Fantia::Authenticator.new(
       client: client,
       email: email,
@@ -159,9 +160,14 @@ if manual_cookie.nil?
       otp_provider: options[:otp_provider],
       logger: logger
     )
+    logger&.call('Fantia authenticator ready (OTP support enabled)')
   elsif email || password
     raise ArgumentError, 'Both email and password are required to authenticate with Fantia.'
+  else
+    logger&.call('No Fantia credentials supplied; proceeding without authentication')
   end
+else
+  logger&.call('Manual cookie provided; authentication step will be skipped')
 end
 
 begin

@@ -14,6 +14,7 @@ module Fantia
       @manual_cookie = nil if @manual_cookie&.empty?
       @logger = logger
       @cookie_jar = {}
+      log('Initialized HTTP client with manual cookie override') if @manual_cookie
     end
 
     def get(uri, depth = 0)
@@ -36,7 +37,9 @@ module Fantia
         log("Following redirect to #{new_uri}")
         get(new_uri, depth + 1)
       when Net::HTTPSuccess
-        response.body
+        body = response.body
+        log("Fetched #{uri} (#{body&.bytesize || 0} bytes)")
+        body
       else
         raise "Failed to fetch #{uri} (status: #{response.code})"
       end
@@ -84,6 +87,7 @@ module Fantia
       request['Referer'] = referer.to_s if referer
       request.set_form_data(params)
       log("Posting form to #{uri}")
+      log("Form payload summary: #{masked_form_params(params)}")
 
       response = http_client_for(uri).request(request)
       store_cookies(response)
@@ -104,7 +108,10 @@ module Fantia
     def apply_default_headers(request)
       request['User-Agent'] = DEFAULT_USER_AGENT
       cookie_header = combined_cookie_header
-      request['Cookie'] = cookie_header if cookie_header
+      if cookie_header
+        request['Cookie'] = cookie_header
+        log("Attached cookies: #{masked_cookie_header(cookie_header)}")
+      end
     end
 
     def combined_cookie_header
@@ -145,6 +152,29 @@ module Fantia
 
     def log_http_result(method, uri, response)
       log("#{method} #{uri} -> #{response.code} #{response.message}")
+    end
+
+    def masked_cookie_header(header)
+      header.split(/;\s*/).map do |part|
+        name, value = part.split('=', 2)
+        next part unless value
+
+        masked_value = value.empty? ? '' : '[hidden]'
+        "#{name}=#{masked_value}"
+      end.join('; ')
+    end
+
+    def masked_form_params(params)
+      params.map do |key, value|
+        masked_value = if key.to_s.match?(/password|otp|token|code/i)
+                         '[hidden]'
+                       elsif value.nil? || value.to_s.empty?
+                         '(empty)'
+                       else
+                         value.to_s[0, 40]
+                       end
+        "#{key}=#{masked_value}"
+      end.join(', ')
     end
   end
 end

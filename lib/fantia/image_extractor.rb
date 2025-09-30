@@ -23,8 +23,10 @@ module Fantia
         next unless candidate
 
         begin
-          urls << URI.join(base_uri, candidate)
+          absolute = URI.join(base_uri, candidate)
+          urls << absolute
           img_matches += 1
+          log("Queued <img> source: #{absolute}")
         rescue URI::Error
           log("Skipping invalid image URL: #{candidate}")
         end
@@ -39,6 +41,7 @@ module Fantia
           if image_extension?(absolute)
             urls << absolute
             link_matches += 1
+            log("Queued download link image: #{absolute}")
           end
         rescue URI::Error
           log("Skipping invalid download URL: #{href}")
@@ -107,6 +110,7 @@ module Fantia
             absolute = URI.join(base_uri, candidate)
             urls << absolute
             matches += 1
+            log("Queued script-referenced image: #{absolute}")
           rescue URI::Error
             log("Skipping invalid script image URL: #{candidate}")
           end

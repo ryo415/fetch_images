@@ -26,7 +26,9 @@ module Fantia
       log('Authenticating with Fantia')
 
       html = @client.get(SIGN_IN_URI)
+      log("Received Fantia sign-in page (#{html&.bytesize || 0} bytes)")
       doc = Nokogiri::HTML(html)
+      log_sign_in_forms(doc)
       form = locate_login_form(doc)
       unless form
         log("No Fantia sign-in form detected. Available forms: #{doc.css('form[action]').map { |f| f['action'] || '(self)' }.join(', ')}")
@@ -140,6 +142,7 @@ module Fantia
                         end
       end
 
+      log("Prepared two-factor payload: #{masked_params(payload)}")
       payload
     end
 
@@ -203,6 +206,7 @@ module Fantia
 
       log('Waiting for Fantia two-factor authentication code input')
       @otp = @otp_provider.call
+      log('Received two-factor authentication code from provider')
     end
 
     def extract_login_error(doc)
@@ -222,7 +226,9 @@ module Fantia
     def verify_login!
       log('Verifying Fantia login session')
       html = @client.get(ACCOUNT_HOME_URI)
+      log("Fetched Fantia account home (#{html&.bytesize || 0} bytes)")
       doc = Nokogiri::HTML(html)
+      log("Account page contains #{doc.css('form').size} form(s)")
 
       if locate_login_form(doc)
         log('Fantia login verification failed: login form still present on account page')
@@ -244,7 +250,9 @@ module Fantia
     end
 
     def detect_two_factor_challenge(html, current_page_uri, visited_frames = Set.new, depth = 0)
+      log("Scanning #{current_page_uri} for two-factor challenges (depth #{depth})")
       doc = Nokogiri::HTML(html)
+      log("Page contains #{doc.css('form').size} form(s) and #{doc.css('turbo-frame, iframe').size} frame(s)")
       form = locate_two_factor_form(doc)
       return { form: form, doc: doc, page_uri: current_page_uri } if form
 
@@ -272,9 +280,15 @@ module Fantia
     end
 
     def locate_two_factor_form(doc)
-      doc.css('form').find do |candidate|
-        candidate.css('input').any? { |input| two_factor_input?(input) }
+      doc.css('form').each do |candidate|
+        description = describe_form(candidate)
+        log("Inspecting form #{description} for two-factor inputs")
+        if candidate.css('input').any? { |input| two_factor_input?(input) }
+          log("Identified two-factor form: #{description}")
+          return candidate
+        end
       end
+      nil
     end
 
     def possible_two_factor_frame?(frame)
@@ -306,6 +320,38 @@ module Fantia
       ]
 
       patterns.any? { |pattern| normalized.match?(pattern) }
+    end
+
+    def log_sign_in_forms(doc)
+      forms = doc.css('form[action]')
+      return log('Fantia sign-in page does not expose any POST forms') if forms.empty?
+
+      summary = forms.map { |form| describe_form(form) }.join('; ')
+      log("Fantia sign-in page exposes #{forms.size} form(s): #{summary}")
+    end
+
+    def describe_form(form)
+      action = form['action'].to_s.strip
+      action = '(self)' if action.empty?
+      method = form['method'].to_s.strip.upcase
+      method = 'GET' if method.empty?
+      identifiers = []
+      identifiers << "id=#{form['id']}" if form['id']
+      identifiers << "class=#{form['class']}" if form['class']
+      "action=#{action} method=#{method} #{identifiers.join(' ')}".strip
+    end
+
+    def masked_params(params)
+      params.map do |key, value|
+        masked_value = if key.to_s.match?(/password|otp|token|code/i)
+                         '[hidden]'
+                       elsif value.nil? || value.to_s.empty?
+                         '(empty)'
+                       else
+                         value.to_s[0, 40]
+                       end
+        "#{key}=#{masked_value}"
+      end.join(', ')
     end
   end
 end
