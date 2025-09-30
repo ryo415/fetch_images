@@ -260,7 +260,7 @@ module Fantia
 
       frame_candidates = doc.css('turbo-frame[src], iframe[src]')
       frame_candidates.each do |frame|
-        next unless possible_two_factor_frame?(frame)
+        next unless possible_two_factor_frame?(frame, current_page_uri)
 
         src = frame['src'].to_s.strip
         next if src.empty?
@@ -291,9 +291,17 @@ module Fantia
       nil
     end
 
-    def possible_two_factor_frame?(frame)
-      attributes = [frame['id'], frame['src'], frame['name'], frame['class'], frame['data-controller']].compact.join(' ')
+    def possible_two_factor_frame?(frame, current_page_uri)
+      src = frame['src'].to_s
+      attributes = [frame['id'], src, frame['name'], frame['class'], frame['data-controller']].compact.join(' ')
       return true if attributes.match?(/two[_-]?factor|otp|one[_-]?time|email[_-]?confirmation|verification/i)
+      return true if src.match?(/sessions|two[_-]?factor|otp|code|token|verification/i)
+
+      if current_page_uri.host == SIGN_IN_URI.host && current_page_uri.path.start_with?('/sessions')
+        # Fantia embeds the OTP form inside unnamed turbo frames on the sign-in page.
+        # When we are still on the sessions area we aggressively inspect every frame.
+        return true
+      end
 
       frame.text.match?(/二段階認証|ワンタイム|認証コード|確認コード/) # Japanese hints
     end
