@@ -256,6 +256,18 @@ module Fantia
       form = locate_two_factor_form(doc)
       return { form: form, doc: doc, page_uri: current_page_uri } if form
 
+      doc.css('turbo-stream').each do |stream|
+        template = stream.at_css('template')
+        next unless template
+
+        template_html = template.inner_html.to_s
+        next if template_html.strip.empty?
+
+        log("Inspecting turbo-stream template target=#{stream['target'] || '(none)'} action=#{stream['action'] || '(none)'}")
+        detection = detect_two_factor_challenge(template_html, current_page_uri, visited_frames, depth + 1)
+        return detection if detection[:form]
+      end
+
       return { form: nil, doc: doc, page_uri: current_page_uri } if depth >= 5
 
       frame_candidates = doc.css('turbo-frame[src], iframe[src]')
