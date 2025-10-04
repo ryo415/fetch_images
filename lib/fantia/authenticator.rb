@@ -249,7 +249,22 @@ module Fantia
       log("Detected possible two-factor input #{name.inspect} (type: #{type}) via #{reason}")
     end
 
-    def detect_two_factor_challenge(html, current_page_uri, visited_frames = Set.new, depth = 0)
+    ADDITIONAL_TWO_FACTOR_PATHS = [
+      '/sessions/email_confirmation',
+      '/sessions/email_confirmation/new',
+      '/sessions/email_confirmation?format=turbo_stream',
+      '/sessions/two_factor',
+      '/sessions/two_factor/new',
+      '/sessions/two_factor?format=turbo_stream',
+      '/users/email_confirmation',
+      '/users/email_confirmation/new',
+      '/users/email_confirmation?format=turbo_stream',
+      '/users/two_factor',
+      '/users/two_factor/new',
+      '/users/two_factor?format=turbo_stream'
+    ].freeze
+
+    def detect_two_factor_challenge(html, current_page_uri, visited_resources = Set.new, depth = 0)
       log("Scanning #{current_page_uri} for two-factor challenges (depth #{depth})")
       doc = Nokogiri::HTML(html)
       log("Page contains #{doc.css('form').size} form(s) and #{doc.css('turbo-frame, iframe').size} frame(s)")
@@ -264,7 +279,7 @@ module Fantia
         next if template_html.strip.empty?
 
         log("Inspecting turbo-stream template target=#{stream['target'] || '(none)'} action=#{stream['action'] || '(none)'}")
-        detection = detect_two_factor_challenge(template_html, current_page_uri, visited_frames, depth + 1)
+        detection = detect_two_factor_challenge(template_html, current_page_uri, visited_resources, depth + 1)
         return detection if detection[:form]
       end
 
@@ -272,19 +287,31 @@ module Fantia
 
       frame_candidates = doc.css('turbo-frame[src], iframe[src]')
       frame_candidates.each do |frame|
+        log_frame_candidate(frame)
         next unless possible_two_factor_frame?(frame, current_page_uri)
 
         src = frame['src'].to_s.strip
-        next if src.empty?
+        if src.empty?
+          log('Skipping frame without src attribute while scanning for two-factor form')
+          next
+        end
 
         frame_uri = URI.join(current_page_uri, src)
         key = frame_uri.to_s
-        next if visited_frames.include?(key)
+        if visited_resources.include?(key)
+          log("Already inspected potential two-factor resource #{frame_uri}, skipping")
+          next
+        end
 
-        visited_frames.add(key)
+        visited_resources.add(key)
         log("Fetching potential two-factor frame #{frame_uri}")
         frame_html = @client.get(frame_uri)
-        detection = detect_two_factor_challenge(frame_html, frame_uri, visited_frames, depth + 1)
+        detection = detect_two_factor_challenge(frame_html, frame_uri, visited_resources, depth + 1)
+        return detection if detection[:form]
+      end
+
+      if should_probe_additional_two_factor_paths?(current_page_uri, visited_resources, depth)
+        detection = probe_additional_two_factor_paths(current_page_uri, visited_resources, depth)
         return detection if detection[:form]
       end
 
@@ -316,6 +343,47 @@ module Fantia
       end
 
       frame.text.match?(/二段階認証|ワンタイム|認証コード|確認コード/) # Japanese hints
+    end
+
+    def should_probe_additional_two_factor_paths?(current_page_uri, visited_resources, depth)
+      return false unless depth.zero?
+      return false unless current_page_uri.host == SIGN_IN_URI.host
+      return false if visited_resources.any? { |uri| uri.include?('email_confirmation') || uri.include?('two_factor') }
+
+      true
+    end
+
+    def probe_additional_two_factor_paths(current_page_uri, visited_resources, depth)
+      ADDITIONAL_TWO_FACTOR_PATHS.each do |path|
+        candidate_uri = URI.join(SIGN_IN_URI, path)
+        key = candidate_uri.to_s
+        next if visited_resources.include?(key)
+
+        visited_resources.add(key)
+        log("Probing potential two-factor endpoint #{candidate_uri}")
+        begin
+          html = @client.get(candidate_uri)
+        rescue StandardError => e
+          log("Failed to load potential two-factor endpoint #{candidate_uri}: #{e.message}")
+          next
+        end
+
+        detection = detect_two_factor_challenge(html, candidate_uri, visited_resources, depth + 1)
+        return detection if detection[:form]
+      end
+
+      { form: nil, doc: nil, page_uri: current_page_uri }
+    end
+
+    def log_frame_candidate(frame)
+      description = [
+        "id=#{frame['id'] || '(none)'}",
+        "name=#{frame['name'] || '(none)'}",
+        "src=#{frame['src'] || '(none)'}",
+        "class=#{frame['class'] || '(none)'}",
+        "data-controller=#{frame['data-controller'] || '(none)'}"
+      ].join(', ')
+      log("Evaluating frame for two-factor content: #{description}")
     end
 
     def two_factor_identifier?(text)
