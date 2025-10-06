@@ -4,12 +4,14 @@ A lightweight Ruby command line utility for downloading images from Fantia and P
 
 ## Installation
 
-The tool only depends on Ruby's standard library. Clone this repository and make the executable available:
+Install the required gem bundle locally under `vendor/bundle` and make the executable available:
 
 ```bash
-bundle install # optional, no dependencies required
+bundle install --path vendor/bundle
 chmod +x bin/fetch_images
 ```
+
+The project currently relies only on Ruby's standard library, but using Bundler ensures any future gems are installed under `vendor/bundle`.
 
 ## Usage
 
