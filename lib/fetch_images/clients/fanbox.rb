@@ -6,7 +6,11 @@ require "uri"
 module FetchImages
   module Clients
     class Fanbox < Client
-      URL_PATTERN = %r{https?://(?<creator>[a-zA-Z0-9_-]+)\.fanbox\.cc/posts/(?<id>\d+)}.freeze
+      URL_PATTERN = %r{
+        \Ahttps?://
+        (?:(?<creator>[a-zA-Z0-9_-]+)\.fanbox\.cc|www\.fanbox\.cc/@(?<creator>[a-zA-Z0-9_-]+))
+        /posts/(?<id>\d+)
+      }x.freeze
       API_URL = "https://api.fanbox.cc/post.info".freeze
 
       def supports_url?(url)
@@ -25,10 +29,13 @@ module FetchImages
 
         post_id = match[:id]
         creator = match[:creator]
+        uri = URI.parse(url)
+        origin_host = uri.host == "www.fanbox.cc" ? "www.fanbox.cc" : "#{creator}.fanbox.cc"
+        origin = "#{uri.scheme}://#{origin_host}"
         headers = {
           "Accept" => "application/json, text/plain, */*",
           "Referer" => url,
-          "Origin" => "https://#{creator}.fanbox.cc"
+          "Origin" => origin
         }
         apply_cookies("FANBOXSESSID" => session_id) if session_id
 
