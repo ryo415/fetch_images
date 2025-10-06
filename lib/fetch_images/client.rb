@@ -6,7 +6,14 @@ require "set"
 require "uri"
 require "fileutils"
 require "cgi"
-require "unicode_normalize"
+
+begin
+  require "unicode_normalize"
+rescue LoadError
+  # The optional unicode_normalize default gem may not be available in
+  # minimal Ruby distributions. Filename sanitisation gracefully falls back
+  # when it cannot be loaded.
+end
 
 require_relative "errors"
 require_relative "download_result"
@@ -166,7 +173,8 @@ module FetchImages
     end
 
     def slugify(value)
-      normalized = value.to_s.unicode_normalize(:nfkd)
+      normalized = value.to_s
+      normalized = normalized.unicode_normalize(:nfkd) if normalized.respond_to?(:unicode_normalize)
       normalized = normalized.strip
       normalized = normalized.gsub(/\s+/, "-")
       normalized = normalized.gsub(/[^a-zA-Z0-9._-]/, "")

@@ -11,7 +11,7 @@ bundle install --path vendor/bundle
 chmod +x bin/fetch_images
 ```
 
-The project depends on the `unicode_normalize` gem for consistent filename sanitisation. Bundler installs it under `vendor/bundle` so the CLI can be executed in environments without system-wide gem access.
+Bundler still writes the environment under `vendor/bundle` even though the CLI has no external gem dependencies. If your Ruby distribution includes the optional `unicode_normalize` default gem it will be used for cleaner post directory names, but the tool gracefully falls back when it is unavailable.
 
 ## Usage
 
