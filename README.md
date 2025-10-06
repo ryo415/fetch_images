@@ -15,8 +15,10 @@ The project currently relies only on Ruby's standard library, but using Bundler 
 
 ## Usage
 
-```
-bin/fetch_images [options] <POST_URL> [<POST_URL> ...]
+Run the CLI through Bundler so it automatically loads the vendored dependencies:
+
+```bash
+bundle exec bin/fetch_images [options] <POST_URL> [<POST_URL> ...]
 ```
 
 Downloaded files are stored under the `downloads/` directory by default. Use `--output` to change the destination.
@@ -42,7 +44,7 @@ Private or paid posts on both platforms require valid session cookies.
 As an alternative to copying cookies manually, the CLI can authenticate against Fantia when supplied with your email address and password:
 
 ```bash
-bin/fetch_images --fantia-email you@example.com --fantia-password "your-password" \
+bundle exec bin/fetch_images --fantia-email you@example.com --fantia-password "your-password" \
   https://fantia.jp/posts/12345
 ```
 
@@ -56,7 +58,7 @@ The credentials are used to establish a temporary session and are not stored. Fo
 ## Example
 
 ```bash
-bin/fetch_images https://fantia.jp/posts/12345 \
+bundle exec bin/fetch_images https://fantia.jp/posts/12345 \
   https://creator.fanbox.cc/posts/67890 \
   --output my_downloads --fanbox-session <FANBOXSESSID>
 ```
