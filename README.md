@@ -11,7 +11,7 @@ bundle install --path vendor/bundle
 chmod +x bin/fetch_images
 ```
 
-The project currently relies only on Ruby's standard library, but using Bundler ensures any future gems are installed under `vendor/bundle`.
+The project depends on the `unicode_normalize` gem for consistent filename sanitisation. Bundler installs it under `vendor/bundle` so the CLI can be executed in environments without system-wide gem access.
 
 ## Usage
 
