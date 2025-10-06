@@ -19,9 +19,15 @@ module FetchImages
 
     attr_reader :session_id
 
-    def initialize(session_id: nil)
+    def initialize(session_id: nil, credentials: nil)
       @session_id = session_id
+      @credentials = credentials&.dup || {}
       @cookies = {}
+    end
+
+    def session_id
+      @session_id ||= authenticate! if @session_id.nil? && !@credentials.empty?
+      @session_id
     end
 
     def supports_url?(_url)
@@ -85,9 +91,25 @@ module FetchImages
         cookie_header = build_cookie_header
         request["Cookie"] = cookie_header unless cookie_header.empty?
         response = http.request(request)
+        store_cookies(response)
         unless response.is_a?(Net::HTTPSuccess)
           raise "HTTP request failed with status #{response.code}"
         end
+        response
+      end
+    end
+
+    def http_post_form(uri, form_data, headers: {})
+      uri = URI(uri)
+      Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https") do |http|
+        request = Net::HTTP::Post.new(uri)
+        request["User-Agent"] = USER_AGENT
+        headers.each { |key, value| request[key] = value }
+        cookie_header = build_cookie_header
+        request["Cookie"] = cookie_header unless cookie_header.empty?
+        request.set_form_data(form_data)
+        response = http.request(request)
+        store_cookies(response)
         response
       end
     end
@@ -101,6 +123,7 @@ module FetchImages
         request["Cookie"] = cookie_header unless cookie_header.empty?
 
         http.request(request) do |response|
+          store_cookies(response)
           unless response.is_a?(Net::HTTPSuccess)
             raise "Failed to download #{url}: #{response.code} #{response.message}"
           end
@@ -158,6 +181,31 @@ module FetchImages
       return "" if @cookies.empty?
 
       @cookies.map { |key, value| "#{key}=#{value}" }.join("; ")
+    end
+
+    def store_cookies(response)
+      cookies = response.get_fields("Set-Cookie")
+      return unless cookies
+
+      cookies.each do |cookie|
+        pair = cookie.split(";", 2).first
+        next unless pair
+
+        key, value = pair.split("=", 2)
+        next if key.nil?
+
+        @cookies[key] = value
+      end
+      cookie_name = session_cookie_name
+      @session_id ||= @cookies[cookie_name] if cookie_name
+    end
+
+    def authenticate!
+      raise AuthenticationError, "Login credentials are not supported for this client"
+    end
+
+    def session_cookie_name
+      nil
     end
   end
 end

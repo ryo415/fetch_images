@@ -26,6 +26,26 @@ Private or paid posts on both platforms require valid session cookies.
 - **Fantia** – provide your `_session_id` value using `--fantia-session` or by setting the `FANTIA_SESSION` environment variable.
 - **Fanbox** – provide your `FANBOXSESSID` value using `--fanbox-session` or by setting the `FANBOX_SESSION` environment variable.
 
+#### Getting the session cookies
+
+1. Log into the platform in a desktop browser.
+2. Open the developer tools and look for the storage/cookies panel (`Application` in Chrome, `Storage` in Firefox).
+3. Select the relevant domain and copy the cookie value:
+   - Fantia: `_session_id` on `fantia.jp`
+   - Fanbox: `FANBOXSESSID` on `fanbox.cc`
+4. Pass the copied value to the CLI option or set it via the matching environment variable.
+
+#### Logging into Fantia with credentials
+
+As an alternative to copying cookies manually, the CLI can authenticate against Fantia when supplied with your email address and password:
+
+```bash
+bin/fetch_images --fantia-email you@example.com --fantia-password "your-password" \
+  https://fantia.jp/posts/12345
+```
+
+The credentials are used to establish a temporary session and are not stored. For better security, you can also set `FANTIA_EMAIL` and `FANTIA_PASSWORD` environment variables instead of passing credentials directly on the command line. Fanbox still requires a `FANBOXSESSID` cookie because its login flow is tied to Pixiv's OAuth process.
+
 ### Additional options
 
 - `--overwrite`: replace existing files when re-running the command.

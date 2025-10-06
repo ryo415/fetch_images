@@ -15,6 +15,10 @@ module FetchImages
 
       private
 
+      def session_cookie_name
+        "FANBOXSESSID"
+      end
+
       def fetch_post_payload(url)
         match = URL_PATTERN.match(url)
         raise UnsupportedUrlError, url unless match

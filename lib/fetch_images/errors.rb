@@ -9,4 +9,7 @@ module FetchImages
       @url = url
     end
   end
+
+  class AuthenticationError < StandardError
+  end
 end
