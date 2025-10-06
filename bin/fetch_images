@@ -1,0 +1,117 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "bundler/setup"
+require "optparse"
+require "fileutils"
+require_relative "../lib/fetch_images"
+
+module FetchImages
+  class CLI
+    def initialize(argv)
+      @argv = argv
+      @options = {
+        output: File.expand_path("downloads"),
+        fantia_session: ENV["FANTIA_SESSION"],
+        fantia_email: ENV["FANTIA_EMAIL"],
+        fantia_password: ENV["FANTIA_PASSWORD"],
+        fanbox_session: ENV["FANBOX_SESSION"],
+        overwrite: false,
+        dry_run: false
+      }
+    end
+
+    def run
+      parser = build_parser
+      urls = parser.parse!(@argv)
+      if urls.empty?
+        puts parser
+        return 1
+      end
+
+      FileUtils.mkdir_p(@options[:output])
+      clients = [
+        Clients::Fantia.new(session_id: @options[:fantia_session], credentials: build_credentials(@options[:fantia_email], @options[:fantia_password])),
+        Clients::Fanbox.new(session_id: @options[:fanbox_session])
+      ]
+
+      exit_code = 0
+      urls.each do |url|
+        begin
+          handle_download(url, clients)
+        rescue AuthenticationError => e
+          warn e.message
+          exit_code = 1
+        rescue UnsupportedUrlError => e
+          warn e.message
+          exit_code = 1
+        rescue StandardError => e
+          warn "Error while processing #{url}: #{e.message}"
+          exit_code = 1
+        end
+      end
+
+      exit_code
+    end
+
+    private
+
+    def build_parser
+      OptionParser.new do |opts|
+        opts.banner = "Usage: fetch_images [options] URL [URL ...]"
+        opts.on("-o", "--output DIR", "Directory for downloaded files (default: ./downloads)") do |dir|
+          @options[:output] = File.expand_path(dir)
+        end
+        opts.on("--fantia-session TOKEN", "Fantia _session_id cookie value") do |token|
+          @options[:fantia_session] = token
+        end
+        opts.on("--fantia-email EMAIL", "Fantia account email for login") do |email|
+          @options[:fantia_email] = email
+        end
+        opts.on("--fantia-password PASSWORD", "Fantia account password for login") do |password|
+          @options[:fantia_password] = password
+        end
+        opts.on("--fanbox-session TOKEN", "FANBOXSESSID cookie value") do |token|
+          @options[:fanbox_session] = token
+        end
+        opts.on("--overwrite", "Overwrite existing files") do
+          @options[:overwrite] = true
+        end
+        opts.on("--dry-run", "List files without downloading") do
+          @options[:dry_run] = true
+        end
+        opts.on("-h", "--help", "Show this help message") do
+          puts opts
+          exit
+        end
+      end
+    end
+
+    def handle_download(url, clients)
+      client = clients.find { |c| c.supports_url?(url) }
+      raise UnsupportedUrlError, url unless client
+
+      result = client.download_images(url, @options[:output], overwrite: @options[:overwrite], dry_run: @options[:dry_run])
+      if @options[:dry_run]
+        puts "Dry run: would download #{result.planned.length} file(s) from #{url}"
+      elsif result.downloaded.any?
+        puts "Downloaded #{result.downloaded.length} file(s) from #{url}"
+      elsif result.skipped.any?
+        puts "Skipped #{result.skipped.length} existing file(s) for #{url}"
+      else
+        puts "No downloadable images found for #{url}"
+      end
+    end
+
+    def build_credentials(email, password)
+      return nil if email.to_s.empty? || password.to_s.empty?
+
+      { email: email, password: password }
+    end
+  end
+end
+
+if $PROGRAM_NAME == __FILE__
+  cli = FetchImages::CLI.new(ARGV)
+  exit(cli.run)
+end
