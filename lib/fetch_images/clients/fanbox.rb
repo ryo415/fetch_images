@@ -12,6 +12,7 @@ module FetchImages
         /posts/(?<id>\d+)
       }x.freeze
       API_URL = "https://api.fanbox.cc/post.info".freeze
+      CANONICAL_ORIGIN = "https://www.fanbox.cc".freeze
       BROWSER_USER_AGENT = (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " \
         "AppleWebKit/537.36 (KHTML, like Gecko) " \
@@ -34,17 +35,11 @@ module FetchImages
 
         post_id = match[:id]
         creator = match[:creator]
-        uri = URI.parse(url)
-        origin_host = uri.host || "www.fanbox.cc"
-        origin = "#{uri.scheme}://#{origin_host}"
-        referer = uri.to_s
-        headers = {
-          "Accept" => "application/json, text/plain, */*",
-          "Referer" => referer,
-          "Origin" => origin,
-          "Accept-Language" => "ja,en-US;q=0.9,en;q=0.8"
-        }
+        referer = canonical_referer(creator, post_id)
+        origin = canonical_origin
+        headers = fanbox_api_headers(origin: origin, referer: referer)
         apply_cookies("FANBOXSESSID" => session_id) if session_id
+        @fanbox_download_headers = fanbox_asset_headers(origin: origin, referer: referer)
 
         debug_log(
           "fanbox.post.info request",
@@ -72,6 +67,11 @@ module FetchImages
         BROWSER_USER_AGENT
       end
 
+      def download_file(url, path, headers: {})
+        merged_headers = fanbox_download_headers.merge(headers)
+        super(url, path, headers: merged_headers)
+      end
+
       def extract_image_urls(payload)
         urls = Set.new
         body = payload["body"]
@@ -93,6 +93,47 @@ module FetchImages
         creator_slug = slugify(creator)
         title_slug = slugify(title)
         ["fanbox", creator_slug, post_id, title_slug].reject(&:empty?).join("_")
+      end
+
+      def fanbox_api_headers(origin:, referer:)
+        {
+          "Accept" => "application/json, text/plain, */*",
+          "Accept-Language" => "ja,en-US;q=0.9,en;q=0.8",
+          "Cache-Control" => "no-cache",
+          "Origin" => origin,
+          "Pragma" => "no-cache",
+          "Referer" => referer,
+          "sec-ch-ua" => '"Chromium";v="120", "Not A(Brand";v="24", "Google Chrome";v="120"',
+          "sec-ch-ua-mobile" => "?0",
+          "sec-ch-ua-platform" => '"Windows"',
+          "sec-fetch-dest" => "empty",
+          "sec-fetch-mode" => "cors",
+          "sec-fetch-site" => "same-origin",
+          "X-Requested-With" => "XMLHttpRequest"
+        }
+      end
+
+      def fanbox_asset_headers(origin: canonical_origin, referer: fanbox_referer)
+        {
+          "Referer" => referer,
+          "Origin" => origin
+        }.compact
+      end
+
+      def fanbox_download_headers
+        @fanbox_download_headers || fanbox_asset_headers
+      end
+
+      def canonical_referer(creator, post_id)
+        @fanbox_referer = "#{canonical_origin}/@#{creator}/posts/#{post_id}"
+      end
+
+      def fanbox_referer
+        @fanbox_referer
+      end
+
+      def canonical_origin
+        CANONICAL_ORIGIN
       end
     end
   end

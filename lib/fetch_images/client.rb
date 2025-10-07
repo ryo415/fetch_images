@@ -158,18 +158,20 @@ module FetchImages
       end
     end
 
-    def download_file(url, path)
+    def download_file(url, path, headers: {})
       uri = URI(url)
       debug_log(
         "download_file request",
         method: "GET",
         url: uri.to_s,
         path: path,
+        headers: sanitize_headers_for_log(headers),
         cookies: sanitize_cookies_for_log
       )
       Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https") do |http|
         request = Net::HTTP::Get.new(uri)
         request["User-Agent"] = user_agent
+        headers.each { |key, value| request[key] = value }
         cookie_header = build_cookie_header
         request["Cookie"] = cookie_header unless cookie_header.empty?
 
