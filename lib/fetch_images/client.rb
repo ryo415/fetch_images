@@ -6,6 +6,8 @@ require "set"
 require "uri"
 require "fileutils"
 require "cgi"
+require "time"
+require "digest"
 
 begin
   require "unicode_normalize"
@@ -91,6 +93,15 @@ module FetchImages
         uri.query = [uri.query, query].compact.join("&")
       end
 
+      debug_log(
+        "http.get request",
+        method: "GET",
+        url: uri.to_s,
+        params: params,
+        headers: sanitize_headers_for_log(headers),
+        cookies: sanitize_cookies_for_log
+      )
+
       Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https") do |http|
         request = Net::HTTP::Get.new(uri)
         request["User-Agent"] = USER_AGENT
@@ -99,6 +110,15 @@ module FetchImages
         request["Cookie"] = cookie_header unless cookie_header.empty?
         response = http.request(request)
         store_cookies(response)
+        debug_log(
+          "http.get response",
+          method: "GET",
+          url: uri.to_s,
+          status: "#{response.code} #{response.message}",
+          headers: sanitize_response_headers_for_log(response),
+          body_preview: response_preview_for_log(response.body),
+          cookies: sanitize_cookies_for_log
+        )
         unless response.is_a?(Net::HTTPSuccess)
           raise "HTTP request failed with status #{response.code}"
         end
@@ -108,6 +128,14 @@ module FetchImages
 
     def http_post_form(uri, form_data, headers: {})
       uri = URI(uri)
+      debug_log(
+        "http.post_form request",
+        method: "POST",
+        url: uri.to_s,
+        form_data: sanitize_form_data_for_log(form_data),
+        headers: sanitize_headers_for_log(headers),
+        cookies: sanitize_cookies_for_log
+      )
       Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https") do |http|
         request = Net::HTTP::Post.new(uri)
         request["User-Agent"] = USER_AGENT
@@ -117,12 +145,28 @@ module FetchImages
         request.set_form_data(form_data)
         response = http.request(request)
         store_cookies(response)
+        debug_log(
+          "http.post_form response",
+          method: "POST",
+          url: uri.to_s,
+          status: "#{response.code} #{response.message}",
+          headers: sanitize_response_headers_for_log(response),
+          body_preview: response_preview_for_log(response.body),
+          cookies: sanitize_cookies_for_log
+        )
         response
       end
     end
 
     def download_file(url, path)
       uri = URI(url)
+      debug_log(
+        "download_file request",
+        method: "GET",
+        url: uri.to_s,
+        path: path,
+        cookies: sanitize_cookies_for_log
+      )
       Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https") do |http|
         request = Net::HTTP::Get.new(uri)
         request["User-Agent"] = USER_AGENT
@@ -131,6 +175,14 @@ module FetchImages
 
         http.request(request) do |response|
           store_cookies(response)
+          debug_log(
+            "download_file response",
+            method: "GET",
+            url: uri.to_s,
+            status: "#{response.code} #{response.message}",
+            headers: sanitize_response_headers_for_log(response),
+            cookies: sanitize_cookies_for_log
+          )
           unless response.is_a?(Net::HTTPSuccess)
             raise "Failed to download #{url}: #{response.code} #{response.message}"
           end
@@ -214,6 +266,118 @@ module FetchImages
 
     def session_cookie_name
       nil
+    end
+
+    def debug_logging_enabled?
+      return @debug_logging_enabled unless @debug_logging_enabled.nil?
+
+      raw = ENV["FETCH_IMAGES_DEBUG"]
+      @debug_logging_enabled = ![nil, "", "0", "false", "off", "no"].include?(raw&.strip&.downcase)
+    end
+
+    def debug_log(message = nil, **context)
+      return unless debug_logging_enabled?
+
+      payload = { timestamp: Time.now.iso8601 }
+      payload[:message] = message if message
+      context.each do |key, value|
+        payload[key] = normalize_debug_value(value)
+      end
+
+      $stderr.puts("[fetch-images] #{JSON.generate(payload)}")
+    rescue JSON::GeneratorError
+      fallback = payload.transform_values { |value| value.inspect }
+      $stderr.puts("[fetch-images] #{fallback}")
+    end
+
+    def normalize_debug_value(value)
+      case value
+      when Hash
+        value.each_with_object({}) { |(k, v), result| result[k] = normalize_debug_value(v) }
+      when Array
+        value.map { |item| normalize_debug_value(item) }
+      when Set
+        value.map { |item| normalize_debug_value(item) }
+      else
+        value
+      end
+    end
+
+    def sanitize_headers_for_log(headers)
+      return {} unless headers
+
+      headers.each_with_object({}) do |(key, value), result|
+        normalized_key = key.to_s
+        sanitized_value = if value.is_a?(Array)
+          value.map { |item| sanitize_header_value_for_log(normalized_key, item) }
+        else
+          sanitize_header_value_for_log(normalized_key, value)
+        end
+        result[normalized_key] = sanitized_value
+      end
+    end
+
+    def sanitize_response_headers_for_log(response)
+      headers = {}
+      response.each_header { |key, value| headers[key] = value }
+      sanitize_headers_for_log(headers)
+    end
+
+    def sanitize_header_value_for_log(key, value)
+      if sensitive_header?(key)
+        filtered_value_for_log(value)
+      else
+        value
+      end
+    end
+
+    def sanitize_cookies_for_log
+      @cookies.each_with_object({}) do |(key, value), result|
+        result[key] = filtered_value_for_log(value)
+      end
+    end
+
+    def sanitize_form_data_for_log(form_data)
+      return {} unless form_data
+
+      form_data.each_with_object({}) do |(key, value), result|
+        result[key] = filtered_value_for_log(value)
+      end
+    end
+
+    def filtered_value_for_log(value)
+      case value
+      when nil
+        nil
+      when Array
+        value.map { |item| filtered_value_for_log(item) }
+      else
+        string = value.to_s
+        digest = Digest::SHA256.hexdigest(string)
+        length = string.length
+        "[FILTERED length=#{length} sha256=#{digest}]"
+      end
+    end
+
+    def sensitive_header?(key)
+      SENSITIVE_HEADER_NAMES.include?(key.to_s)
+    end
+
+    SENSITIVE_HEADER_NAMES = %w[
+      Cookie cookie
+      Authorization authorization
+      Set-Cookie set-cookie
+      X-Csrf-Token x-csrf-token
+      X-CsrfToken x-csrftoken
+    ].freeze
+
+    def response_preview_for_log(body, limit: 500)
+      return nil unless body
+
+      snippet = body.to_s.encode("UTF-8", invalid: :replace, undef: :replace, replace: "?")
+      return snippet if snippet.length <= limit
+
+      snippet[0, limit] + "…"
     end
   end
 end

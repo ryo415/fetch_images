@@ -39,7 +39,24 @@ module FetchImages
         }
         apply_cookies("FANBOXSESSID" => session_id) if session_id
 
+        debug_log(
+          "fanbox.post.info request",
+          post_id: post_id,
+          creator: creator,
+          url: API_URL,
+          params: { postId: post_id },
+          headers: sanitize_headers_for_log(headers),
+          cookies: sanitize_cookies_for_log
+        )
+
         response = http_get(API_URL, headers: headers, params: { "postId" => post_id })
+        debug_log(
+          "fanbox.post.info response",
+          post_id: post_id,
+          status: "#{response.code} #{response.message}",
+          headers: sanitize_response_headers_for_log(response),
+          body_preview: response_preview_for_log(response.body)
+        )
         data = JSON.parse(response.body)
         [post_id, data]
       end
