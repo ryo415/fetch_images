@@ -30,11 +30,11 @@ module FetchImages
         post_id = match[:id]
         creator = match[:creator]
         uri = URI.parse(url)
-        origin_host = uri.host == "www.fanbox.cc" ? "www.fanbox.cc" : "#{creator}.fanbox.cc"
-        origin = "#{uri.scheme}://#{origin_host}"
+        origin = "#{uri.scheme}://www.fanbox.cc"
+        referer = "#{origin}/@#{creator}/posts/#{post_id}"
         headers = {
           "Accept" => "application/json, text/plain, */*",
-          "Referer" => url,
+          "Referer" => referer,
           "Origin" => origin
         }
         apply_cookies("FANBOXSESSID" => session_id) if session_id
