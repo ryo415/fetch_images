@@ -12,6 +12,11 @@ module FetchImages
         /posts/(?<id>\d+)
       }x.freeze
       API_URL = "https://api.fanbox.cc/post.info".freeze
+      BROWSER_USER_AGENT = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " \
+        "AppleWebKit/537.36 (KHTML, like Gecko) " \
+        "Chrome/120.0.0.0 Safari/537.36"
+      ).freeze
 
       def supports_url?(url)
         !!URL_PATTERN.match(url)
@@ -30,12 +35,14 @@ module FetchImages
         post_id = match[:id]
         creator = match[:creator]
         uri = URI.parse(url)
-        origin = "#{uri.scheme}://www.fanbox.cc"
-        referer = "#{origin}/@#{creator}/posts/#{post_id}"
+        origin_host = uri.host || "www.fanbox.cc"
+        origin = "#{uri.scheme}://#{origin_host}"
+        referer = uri.to_s
         headers = {
           "Accept" => "application/json, text/plain, */*",
           "Referer" => referer,
-          "Origin" => origin
+          "Origin" => origin,
+          "Accept-Language" => "ja,en-US;q=0.9,en;q=0.8"
         }
         apply_cookies("FANBOXSESSID" => session_id) if session_id
 
@@ -59,6 +66,10 @@ module FetchImages
         )
         data = JSON.parse(response.body)
         [post_id, data]
+      end
+
+      def user_agent
+        BROWSER_USER_AGENT
       end
 
       def extract_image_urls(payload)

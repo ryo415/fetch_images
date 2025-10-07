@@ -104,7 +104,7 @@ module FetchImages
 
       Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https") do |http|
         request = Net::HTTP::Get.new(uri)
-        request["User-Agent"] = USER_AGENT
+        request["User-Agent"] = user_agent
         headers.each { |key, value| request[key] = value }
         cookie_header = build_cookie_header
         request["Cookie"] = cookie_header unless cookie_header.empty?
@@ -138,7 +138,7 @@ module FetchImages
       )
       Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https") do |http|
         request = Net::HTTP::Post.new(uri)
-        request["User-Agent"] = USER_AGENT
+        request["User-Agent"] = user_agent
         headers.each { |key, value| request[key] = value }
         cookie_header = build_cookie_header
         request["Cookie"] = cookie_header unless cookie_header.empty?
@@ -169,7 +169,7 @@ module FetchImages
       )
       Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https") do |http|
         request = Net::HTTP::Get.new(uri)
-        request["User-Agent"] = USER_AGENT
+        request["User-Agent"] = user_agent
         cookie_header = build_cookie_header
         request["Cookie"] = cookie_header unless cookie_header.empty?
 
@@ -266,6 +266,10 @@ module FetchImages
 
     def session_cookie_name
       nil
+    end
+
+    def user_agent
+      USER_AGENT
     end
 
     def debug_logging_enabled?
