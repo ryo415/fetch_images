@@ -82,7 +82,15 @@ module FetchImages
     end
 
     def apply_cookies(hash)
-      @cookies.merge!(hash.compact)
+      additions = hash.compact
+      return if additions.empty?
+
+      sanitized = additions.each_with_object({}) do |(key, value), result|
+        result[key] = filtered_value_for_log(value)
+      end
+      debug_log("apply_cookies", cookies: sanitized)
+
+      @cookies.merge!(additions)
     end
 
     def http_get(uri, headers: {}, params: {})
@@ -249,6 +257,10 @@ module FetchImages
       cookies = response.get_fields("Set-Cookie")
       return unless cookies
 
+      debug_log(
+        "store_cookies raw", set_cookie_headers: cookies.map { |value| filtered_value_for_log(value) }
+      )
+
       cookies.each do |cookie|
         pair = cookie.split(";", 2).first
         next unless pair
@@ -259,7 +271,17 @@ module FetchImages
         @cookies[key] = value
       end
       cookie_name = session_cookie_name
-      @session_id ||= @cookies[cookie_name] if cookie_name
+      if cookie_name
+        previous = @session_id
+        @session_id ||= @cookies[cookie_name]
+        if @session_id
+          debug_log(
+            "store_cookies session", cookie_name: cookie_name,
+            previous_session_present: !previous.nil?,
+            session_id: filtered_value_for_log(@session_id)
+          )
+        end
+      end
     end
 
     def authenticate!

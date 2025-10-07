@@ -42,6 +42,17 @@ module FetchImages
         @fanbox_download_headers = fanbox_asset_headers(origin: origin, referer: referer)
 
         debug_log(
+          "fanbox.post.info setup",
+          post_id: post_id,
+          creator: creator,
+          origin: origin,
+          referer: referer,
+          session_present: !session_id.nil?,
+          session_id: session_id ? filtered_value_for_log(session_id) : nil,
+          asset_headers: sanitize_headers_for_log(@fanbox_download_headers)
+        )
+
+        debug_log(
           "fanbox.post.info request",
           post_id: post_id,
           creator: creator,
@@ -69,6 +80,10 @@ module FetchImages
 
       def download_file(url, path, headers: {})
         merged_headers = fanbox_download_headers.merge(headers)
+        debug_log(
+          "fanbox.download headers", url: url, path: path,
+          merged_headers: sanitize_headers_for_log(merged_headers)
+        )
         super(url, path, headers: merged_headers)
       end
 
@@ -126,6 +141,8 @@ module FetchImages
 
       def canonical_referer(creator, post_id)
         @fanbox_referer = "#{canonical_origin}/@#{creator}/posts/#{post_id}"
+        debug_log("fanbox.canonical_referer", referer: @fanbox_referer)
+        @fanbox_referer
       end
 
       def fanbox_referer
