@@ -44,7 +44,8 @@ module FetchImages
       if trimmed.match?(/\A(['"]).*\1\z/)
         trimmed[1...-1]
       else
-        trimmed.split(/\s+#/, 2).first.strip
+        value = trimmed.split(/\s+#/, 2).first
+        value ? value.strip : ""
       end
     end
   end
