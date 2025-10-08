@@ -21,7 +21,7 @@ module FetchImages
     end
 
     def default_path
-      File.expand_path("../.env", __dir__)
+      File.expand_path("../../.env", __dir__)
     end
 
     def parse_line(line)
