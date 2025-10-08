@@ -28,8 +28,11 @@ Downloaded files are stored under the `downloads/` directory by default. Use `--
 Private or paid posts on both platforms require valid session cookies.
 
 An `.env.sample` file is provided with the required environment variables.
-Copy it to `.env`, fill in your credentials, and export the values before
-running the CLI (e.g. `export $(grep -v '^#' .env | xargs)`).
+Copy it to `.env` and fill in your credentials. The CLI automatically loads
+the `.env` file on startup, so the variables are available without manually
+exporting them. If you prefer to manage your environment yourself, you can
+still export the values before running the CLI (e.g. `export $(grep -v '^#'
+.env | xargs)`).
 
 - **Fantia** – provide your `_session_id` value using `--fantia-session` or by setting the `FANTIA_SESSION` environment variable.
 - **Fanbox** – provide your `FANBOXSESSID` value using `--fanbox-session` or by setting the `FANBOX_SESSION` environment variable.

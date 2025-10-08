@@ -2,6 +2,8 @@
 # frozen_string_literal: true
 
 require "bundler/setup"
+require_relative "../lib/fetch_images/env_loader"
+FetchImages::EnvLoader.load_default
 require "optparse"
 require "fileutils"
 require_relative "../lib/fetch_images"
