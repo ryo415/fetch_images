@@ -1,108 +1,83 @@
 # fetch_images
 
-A simple Ruby script for downloading all images from a Fantia article.
+Fantia / Pixiv FANBOX の投稿から画像を一括ダウンロードする Ruby CLI です。
 
-## Requirements
+## 対応URL
 
-- Ruby 3.0 or later
-- Bundler (`gem install bundler` if it is not already available)
-- The [`nokogiri`](https://nokogiri.org/) gem is installed through Bundler
+- Fantia: `https://fantia.jp/posts/<id>`
+- Fantia（fanclub配下）: `https://fantia.jp/fanclubs/<fanclub_id>/posts/<id>`
+- FANBOX: `https://<creator>.fanbox.cc/posts/<id>`
+- FANBOX: `https://www.fanbox.cc/@<creator>/posts/<id>`
 
-Install the dependencies with Bundler so they are stored under `vender/bundle`:
+## 動作環境
 
-```
-bundle install --path vender/bundle
-```
+- Ruby 3.x
+- Bundler
 
-## Usage
-
-Run the script via Bundler to ensure the dependencies are available:
-
-```
-bundle exec ruby fantia_fetcher.rb [options] ARTICLE_URL
-```
-
-### Options
-
-- `-o`, `--output DIR` – Directory to save the downloaded images (default: `images`).
-- `-c`, `--cookie COOKIE` – Optional `Cookie` header for requests when you already have a valid Fantia session.
-- `-u`, `--email EMAIL` – Fantia account email for logging in.
-- `-p`, `--password PASSWORD` – Fantia account password (plain text; consider the options below instead).
-- `--password-stdin` – Read the Fantia password from standard input (e.g., `echo 'pass' | ...`).
-- `--password-prompt` – Prompt for the Fantia password with input hidden.
-- `--otp CODE` – Supply a Fantia two-factor authentication (2FA) one-time password directly.
-- `--otp-stdin` – Read the Fantia 2FA code from standard input when Fantia asks for it.
-- `--otp-prompt` – Prompt for the Fantia 2FA code with input hidden when the challenge appears.
-- `-v`, `--[no-]verbose` – Enable verbose logging to see progress messages.
-
-If you provide both an email and password (or supply a password via stdin/prompt), the script performs the Fantia sign-in flow automatically before downloading images. The authenticator verifies the session by loading your Fantia mypage so member-only content can be fetched reliably. Fantia sends two-factor authentication codes by email after the initial login attempt. When the script detects this challenge it will, by default, prompt for the code in interactive terminals so you can paste it once it arrives. In non-interactive scenarios, supply the OTP using one of the options above once you receive the email. The downloader also sends the article URL as the HTTP `Referer` header for each image request to match Fantia's access checks.
-
-### Example
-
-```
-bundle exec ruby fantia_fetcher.rb -o downloads -v --email you@example.com --password-prompt --otp-prompt https://fantia.jp/posts/123456
-```
-
-This command prompts for your Fantia password and, when Fantia emails a one-time password, requests the code before downloading all images referenced by the article into the `downloads` directory while showing progress logs.
-A lightweight Ruby command line utility for downloading images from Fantia and Pixiv Fanbox posts.
-
-## Installation
-
-Install the required gem bundle locally under `vender/bundle` and make the executable available:
+依存関係をインストールします。
 
 ```bash
 bundle install --path vender/bundle
-chmod +x bin/fetch_images
 ```
 
-Bundler still writes the environment under `vender/bundle` even though the CLI has no external gem dependencies. If your Ruby distribution includes the optional `unicode_normalize` default gem it will be used for cleaner post directory names, but the tool gracefully falls back when it is unavailable.
-
-## Usage
-
-Run the CLI through Bundler so it automatically loads the vendored dependencies:
+## 使い方
 
 ```bash
 bundle exec bin/fetch_images [options] <POST_URL> [<POST_URL> ...]
 ```
 
-Downloaded files are stored under the `downloads/` directory by default. Use `--output` to change the destination.
+デフォルトの保存先は `downloads/` です。
 
-### Authentication
+### オプション
 
-Private or paid posts on both platforms require valid session cookies.
+- `-o`, `--output DIR`: 出力先ディレクトリ（デフォルト: `./downloads`）
+- `--fantia-session TOKEN`: Fantia の `_session_id`
+- `--fantia-email EMAIL`: Fantia ログイン用メールアドレス
+- `--fantia-password PASSWORD`: Fantia ログイン用パスワード
+- `--fanbox-session TOKEN`: FANBOX の `FANBOXSESSID`
+- `--overwrite`: 既存ファイルを上書き
+- `--dry-run`: ダウンロードせず対象ファイル数のみ確認
+- `-h`, `--help`: ヘルプ表示
 
-- **Fantia** – provide your `_session_id` value using `--fantia-session` or by setting the `FANTIA_SESSION` environment variable.
-- **Fanbox** – provide your `FANBOXSESSID` value using `--fanbox-session` or by setting the `FANBOX_SESSION` environment variable.
+## 認証
 
-#### Getting the session cookies
+公開投稿以外を取得する場合、セッション情報が必要です。
 
-1. Log into the platform in a desktop browser.
-2. Open the developer tools and look for the storage/cookies panel (`Application` in Chrome, `Storage` in Firefox).
-3. Select the relevant domain and copy the cookie value:
-   - Fantia: `_session_id` on `fantia.jp`
-   - Fanbox: `FANBOXSESSID` on `fanbox.cc`
-4. Pass the copied value to the CLI option or set it via the matching environment variable.
+- Fantia
+  - `--fantia-session` または `FANTIA_SESSION`
+  - もしくは `--fantia-email` + `--fantia-password`（`FANTIA_EMAIL` / `FANTIA_PASSWORD` でも可）
+- FANBOX
+  - `--fanbox-session` または `FANBOX_SESSION`
 
-#### Logging into Fantia with credentials
+ブラウザの開発者ツールから cookie 値を取得して設定してください。
 
-As an alternative to copying cookies manually, the CLI can authenticate against Fantia when supplied with your email address and password:
-
-```bash
-bundle exec bin/fetch_images --fantia-email you@example.com --fantia-password "your-password" \
-  https://fantia.jp/posts/12345
-```
-
-The credentials are used to establish a temporary session and are not stored. For better security, you can also set `FANTIA_EMAIL` and `FANTIA_PASSWORD` environment variables instead of passing credentials directly on the command line. Fanbox still requires a `FANBOXSESSID` cookie because its login flow is tied to Pixiv's OAuth process.
-
-### Additional options
-
-- `--overwrite`: replace existing files when re-running the command.
-- `--dry-run`: show the files that would be downloaded without saving them.
-
-## Example
+## 実行例
 
 ```bash
-bundle exec bin/fetch_images https://fantia.jp/posts/12345 \
-  https://creator.fanbox.cc/posts/67890 \
-  --output my_downloads --fanbox-session <FANBOXSESSID>
+bundle exec bin/fetch_images \
+  --output downloads \
+  --fantia-session "$FANTIA_SESSION" \
+  --fanbox-session "$FANBOX_SESSION" \
+  https://fantia.jp/posts/12345 \
+  https://creator.fanbox.cc/posts/67890
 ```
+
+`--dry-run` の例:
+
+```bash
+bundle exec bin/fetch_images --dry-run https://fantia.jp/posts/12345
+```
+
+## 出力ディレクトリ
+
+投稿ごとに以下の形式でサブディレクトリが作成されます。
+
+- Fantia: `fantia_<creator>_<post_id>_<title>`
+- FANBOX: `fanbox_<creator>_<post_id>_<title>`
+
+各画像は `001_...`, `002_...` のように連番付きファイル名で保存されます。
+
+## 備考
+
+- `fantia_fetcher.rb` は Fantia 専用の旧スクリプトです。
+- 現在の推奨エントリポイントは `bin/fetch_images` です。
