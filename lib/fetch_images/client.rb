@@ -26,10 +26,12 @@ module FetchImages
 
     attr_reader :session_id
 
-    def initialize(session_id: nil, credentials: nil)
+    def initialize(session_id: nil, credentials: nil, cookie_header: nil, logger: nil)
       @session_id = session_id
       @credentials = credentials&.dup || {}
       @cookies = {}
+      @logger = logger
+      apply_cookie_header(cookie_header)
     end
 
     def session_id
@@ -58,8 +60,8 @@ module FetchImages
           next
         end
 
-        download_file(image_url, target_path)
-        result.downloaded << target_path
+        saved_path = download_file(image_url, target_path, referer: url)
+        result.downloaded << saved_path
       end
 
       result
@@ -83,6 +85,18 @@ module FetchImages
       @cookies.merge!(hash.compact)
     end
 
+    def apply_cookie_header(cookie_header)
+      return if cookie_header.to_s.strip.empty?
+
+      cookie_header.split(";").each do |part|
+        key, value = part.split("=", 2)
+        next if key.to_s.strip.empty? || value.nil?
+
+        @cookies[key.strip] = value.strip
+      end
+      log("Loaded cookies from --fantia-cookie: #{cookie_keys.join(', ')}")
+    end
+
     def http_get(uri, headers: {}, params: {})
       uri = URI(uri)
       unless params.nil? || params.empty?
@@ -91,6 +105,7 @@ module FetchImages
         uri.query = [uri.query, query].compact.join("&")
       end
 
+      log("HTTP GET #{uri}")
       Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https") do |http|
         request = Net::HTTP::Get.new(uri)
         request["User-Agent"] = USER_AGENT
@@ -99,6 +114,7 @@ module FetchImages
         request["Cookie"] = cookie_header unless cookie_header.empty?
         response = http.request(request)
         store_cookies(response)
+        log("HTTP GET #{uri} -> #{response.code}")
         unless response.is_a?(Net::HTTPSuccess)
           raise "HTTP request failed with status #{response.code}"
         end
@@ -108,6 +124,7 @@ module FetchImages
 
     def http_post_form(uri, form_data, headers: {})
       uri = URI(uri)
+      log("HTTP POST #{uri}")
       Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https") do |http|
         request = Net::HTTP::Post.new(uri)
         request["User-Agent"] = USER_AGENT
@@ -117,27 +134,33 @@ module FetchImages
         request.set_form_data(form_data)
         response = http.request(request)
         store_cookies(response)
+        log("HTTP POST #{uri} -> #{response.code}")
         response
       end
     end
 
-    def download_file(url, path)
+    def download_file(url, path, referer: nil)
       uri = URI(url)
+      log("Downloading #{uri} -> #{path}")
       Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https") do |http|
         request = Net::HTTP::Get.new(uri)
         request["User-Agent"] = USER_AGENT
+        request["Referer"] = referer if referer
         cookie_header = build_cookie_header
         request["Cookie"] = cookie_header unless cookie_header.empty?
 
         http.request(request) do |response|
           store_cookies(response)
+          log("Download response #{uri} -> #{response.code}")
           unless response.is_a?(Net::HTTPSuccess)
             raise "Failed to download #{url}: #{response.code} #{response.message}"
           end
 
-          File.open(path, "wb") do |file|
+          save_path = ensure_extension(path, response["Content-Type"])
+          File.open(save_path, "wb") do |file|
             response.read_body { |chunk| file.write(chunk) }
           end
+          return save_path
         end
       end
     end
@@ -182,7 +205,31 @@ module FetchImages
     end
 
     def sanitize_filename(filename)
-      filename.gsub(File::SEPARATOR, "_").delete("\u0000")
+      sanitized = filename.gsub(File::SEPARATOR, "_").delete("\u0000")
+      sanitized = sanitized.gsub(/\.+\z/, "")
+      sanitized.empty? ? "image" : sanitized
+    end
+
+    def ensure_extension(path, content_type)
+      return path unless File.extname(path).empty?
+
+      ext = case content_type.to_s.downcase
+            when /image\/jpe?g/
+              ".jpg"
+            when /image\/png/
+              ".png"
+            when /image\/webp/
+              ".webp"
+            when /image\/gif/
+              ".gif"
+            when /image\/bmp/
+              ".bmp"
+            when /image\/avif/
+              ".avif"
+            else
+              ".img"
+            end
+      "#{path}#{ext}"
     end
 
     def build_cookie_header
@@ -206,6 +253,7 @@ module FetchImages
       end
       cookie_name = session_cookie_name
       @session_id ||= @cookies[cookie_name] if cookie_name
+      log("Stored cookies: #{cookie_keys.join(', ')}")
     end
 
     def authenticate!
@@ -214,6 +262,14 @@ module FetchImages
 
     def session_cookie_name
       nil
+    end
+
+    def log(message)
+      @logger&.call(message)
+    end
+
+    def cookie_keys
+      @cookies.keys.sort
     end
   end
 end
