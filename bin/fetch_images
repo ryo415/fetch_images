@@ -13,11 +13,14 @@ module FetchImages
       @options = {
         output: File.expand_path("downloads"),
         fantia_session: ENV["FANTIA_SESSION"],
+        fantia_cookie: ENV["FANTIA_COOKIE"],
         fantia_email: ENV["FANTIA_EMAIL"],
         fantia_password: ENV["FANTIA_PASSWORD"],
         fanbox_session: ENV["FANBOX_SESSION"],
         overwrite: false,
-        dry_run: false
+        dry_run: false,
+        verbose: false,
+        log_file: nil
       }
     end
 
@@ -30,9 +33,15 @@ module FetchImages
       end
 
       FileUtils.mkdir_p(@options[:output])
+      logger = build_logger
       clients = [
-        Clients::Fantia.new(session_id: @options[:fantia_session], credentials: build_credentials(@options[:fantia_email], @options[:fantia_password])),
-        Clients::Fanbox.new(session_id: @options[:fanbox_session])
+        Clients::Fantia.new(
+          session_id: @options[:fantia_session],
+          cookie_header: @options[:fantia_cookie],
+          credentials: build_credentials(@options[:fantia_email], @options[:fantia_password]),
+          logger: logger
+        ),
+        Clients::Fanbox.new(session_id: @options[:fanbox_session], logger: logger)
       ]
 
       exit_code = 0
@@ -65,6 +74,9 @@ module FetchImages
         opts.on("--fantia-session TOKEN", "Fantia _session_id cookie value") do |token|
           @options[:fantia_session] = token
         end
+        opts.on("--fantia-cookie HEADER", "Full Fantia Cookie header value") do |header|
+          @options[:fantia_cookie] = header
+        end
         opts.on("--fantia-email EMAIL", "Fantia account email for login") do |email|
           @options[:fantia_email] = email
         end
@@ -79,6 +91,12 @@ module FetchImages
         end
         opts.on("--dry-run", "List files without downloading") do
           @options[:dry_run] = true
+        end
+        opts.on("-v", "--verbose", "Enable debug logging") do
+          @options[:verbose] = true
+        end
+        opts.on("--log-file PATH", "Write logs to file (default: ./fetch_images.log when --verbose)") do |path|
+          @options[:log_file] = path
         end
         opts.on("-h", "--help", "Show this help message") do
           puts opts
@@ -107,6 +125,23 @@ module FetchImages
       return nil if email.to_s.empty? || password.to_s.empty?
 
       { email: email, password: password }
+    end
+
+    def build_logger
+      return nil unless @options[:verbose] || !@options[:log_file].to_s.empty?
+
+      path = @options[:log_file]
+      path = File.expand_path("fetch_images.log") if path.to_s.empty?
+      log_io = File.open(path, "a")
+      log_io.sync = true
+      warn "Debug log file: #{path}"
+
+      lambda do |message|
+        timestamp = Time.now.strftime("%Y-%m-%d %H:%M:%S")
+        line = "[#{timestamp}] #{message}"
+        warn line if @options[:verbose]
+        log_io.puts(line)
+      end
     end
   end
 end
