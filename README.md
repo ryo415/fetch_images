@@ -14,8 +14,6 @@ Fantia / Pixiv FANBOX の投稿から画像を一括ダウンロードする Rub
 - Ruby 3.x
 - Bundler
 
-依存関係をインストールします。
-
 ```bash
 bundle install --path vender/bundle
 ```
@@ -32,50 +30,53 @@ bundle exec bin/fetch_images [options] <POST_URL> [<POST_URL> ...]
 
 - `-o`, `--output DIR`: 出力先ディレクトリ（デフォルト: `./downloads`）
 - `--fantia-session TOKEN`: Fantia の `_session_id`
+- `--fantia-cookie HEADER`: Fantia の Cookie ヘッダー全文
 - `--fantia-email EMAIL`: Fantia ログイン用メールアドレス
 - `--fantia-password PASSWORD`: Fantia ログイン用パスワード
 - `--fanbox-session TOKEN`: FANBOX の `FANBOXSESSID`
 - `--overwrite`: 既存ファイルを上書き
-- `--dry-run`: ダウンロードせず対象ファイル数のみ確認
+- `--dry-run`: ダウンロードせず対象件数のみ表示
+- `-v`, `--verbose`: デバッグログを標準エラーへ出力
+- `--log-file PATH`: ログをファイル出力（省略時 `./fetch_images.log`）
 - `-h`, `--help`: ヘルプ表示
 
 ## 認証
 
-公開投稿以外を取得する場合、セッション情報が必要です。
+公開範囲外の投稿取得にはセッション情報が必要です。
 
 - Fantia
-  - `--fantia-session` または `FANTIA_SESSION`
-  - もしくは `--fantia-email` + `--fantia-password`（`FANTIA_EMAIL` / `FANTIA_PASSWORD` でも可）
+  - 推奨: `--fantia-cookie` または `FANTIA_COOKIE`
+  - 代替: `--fantia-session` または `FANTIA_SESSION`
+  - 代替: `--fantia-email` + `--fantia-password`（`FANTIA_EMAIL` / `FANTIA_PASSWORD`）
 - FANBOX
   - `--fanbox-session` または `FANBOX_SESSION`
 
-ブラウザの開発者ツールから cookie 値を取得して設定してください。
-
 ## 実行例
+
+Fantia（Cookie ヘッダー指定）:
 
 ```bash
 bundle exec bin/fetch_images \
-  --output downloads \
-  --fantia-session "$FANTIA_SESSION" \
-  --fanbox-session "$FANBOX_SESSION" \
-  https://fantia.jp/posts/12345 \
-  https://creator.fanbox.cc/posts/67890
+  --fantia-cookie 'cookieヘッダー全文' \
+  --output downloads_fantia \
+  https://fantia.jp/posts/xxxxxx
 ```
 
-`--dry-run` の例:
+デバッグログ付き:
 
 ```bash
-bundle exec bin/fetch_images --dry-run https://fantia.jp/posts/12345
+bundle exec bin/fetch_images \
+  --fantia-cookie 'cookieヘッダー全文' \
+  --verbose \
+  --log-file fantia_debug.log \
+  https://fantia.jp/posts/xxxxxxx
 ```
 
-## 出力ディレクトリ
+## 出力仕様（Fantia）
 
-投稿ごとに以下の形式でサブディレクトリが作成されます。
-
-- Fantia: `fantia_<creator>_<post_id>_<title>`
-- FANBOX: `fanbox_<creator>_<post_id>_<title>`
-
-各画像は `001_...`, `002_...` のように連番付きファイル名で保存されます。
+- 同一画像の `main/large/medium/small/micro/thumb` 派生は代表1枚に整理して保存します。
+- `thumb`, `thumb_webp`, `micro`, `small`, `ogp` は最終出力から除外します。
+- 拡張子なしURLは `Content-Type` から拡張子を補完して保存します（例: `.jpg`）。
 
 ## 備考
 
