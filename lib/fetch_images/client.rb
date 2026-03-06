@@ -3,6 +3,7 @@
 require "json"
 require "net/http"
 require "set"
+require "tempfile"
 require "uri"
 require "fileutils"
 require "cgi"
@@ -23,6 +24,8 @@ module FetchImages
 
   class Client
     USER_AGENT = "fetch-images/1.0 (+https://github.com/openai/autonomous-agents)".freeze
+    OPEN_TIMEOUT = 15
+    READ_TIMEOUT = 60
 
     attr_reader :session_id
 
@@ -55,12 +58,15 @@ module FetchImages
       image_urls.each_with_index do |image_url, index|
         filename = build_filename(image_url, index + 1)
         target_path = File.join(post_dir, filename)
-        if File.exist?(target_path) && !overwrite
-          result.skipped << target_path
+        existing_target = existing_download_path(target_path)
+        if existing_target && !overwrite
+          result.skipped << existing_target
           next
         end
 
-        saved_path = download_file(image_url, target_path, referer: url)
+        headers = extra_download_headers(url, image_url)
+        referer = download_referer(url, image_url)
+        saved_path = download_file(image_url, target_path, referer: referer, headers: headers)
         result.downloaded << saved_path
       end
 
@@ -81,6 +87,14 @@ module FetchImages
       raise NotImplementedError, "subclasses must implement #make_post_directory_name"
     end
 
+    def extra_download_headers(_page_url, _image_url)
+      {}
+    end
+
+    def download_referer(page_url, _image_url)
+      page_url
+    end
+
     def apply_cookies(hash)
       @cookies.merge!(hash.compact)
     end
@@ -94,44 +108,31 @@ module FetchImages
 
         @cookies[key.strip] = value.strip
       end
-      log("Loaded cookies from --fantia-cookie: #{cookie_keys.join(', ')}")
+      log("Loaded cookies from cookie header: #{cookie_keys.join(', ')}")
     end
 
     def http_get(uri, headers: {}, params: {})
-      uri = URI(uri)
-      unless params.nil? || params.empty?
-        query = URI.encode_www_form(params)
-        uri = uri.dup
-        uri.query = [uri.query, query].compact.join("&")
-      end
+      uri = append_query_params(URI(uri), params)
+      request = build_request(Net::HTTP::Get, uri, headers)
 
-      log("HTTP GET #{uri}")
-      Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https") do |http|
-        request = Net::HTTP::Get.new(uri)
-        request["User-Agent"] = USER_AGENT
-        headers.each { |key, value| request[key] = value }
-        cookie_header = build_cookie_header
-        request["Cookie"] = cookie_header unless cookie_header.empty?
+      with_http(uri) do |http|
+        log("HTTP GET #{uri}")
         response = http.request(request)
         store_cookies(response)
         log("HTTP GET #{uri} -> #{response.code}")
-        unless response.is_a?(Net::HTTPSuccess)
-          raise "HTTP request failed with status #{response.code}"
-        end
+        raise "HTTP request failed with status #{response.code}" unless response.is_a?(Net::HTTPSuccess)
+
         response
       end
     end
 
     def http_post_form(uri, form_data, headers: {})
       uri = URI(uri)
-      log("HTTP POST #{uri}")
-      Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https") do |http|
-        request = Net::HTTP::Post.new(uri)
-        request["User-Agent"] = USER_AGENT
-        headers.each { |key, value| request[key] = value }
-        cookie_header = build_cookie_header
-        request["Cookie"] = cookie_header unless cookie_header.empty?
-        request.set_form_data(form_data)
+      request = build_request(Net::HTTP::Post, uri, headers)
+      request.set_form_data(form_data)
+
+      with_http(uri) do |http|
+        log("HTTP POST #{uri}")
         response = http.request(request)
         store_cookies(response)
         log("HTTP POST #{uri} -> #{response.code}")
@@ -139,16 +140,14 @@ module FetchImages
       end
     end
 
-    def download_file(url, path, referer: nil)
+    def download_file(url, path, referer: nil, headers: {})
       uri = URI(url)
       log("Downloading #{uri} -> #{path}")
-      Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https") do |http|
-        request = Net::HTTP::Get.new(uri)
-        request["User-Agent"] = USER_AGENT
-        request["Referer"] = referer if referer
-        cookie_header = build_cookie_header
-        request["Cookie"] = cookie_header unless cookie_header.empty?
+      request_headers = headers.dup
+      request_headers["Referer"] = referer if referer
+      request = build_request(Net::HTTP::Get, uri, request_headers)
 
+      with_http(uri) do |http|
         http.request(request) do |response|
           store_cookies(response)
           log("Download response #{uri} -> #{response.code}")
@@ -156,11 +155,7 @@ module FetchImages
             raise "Failed to download #{url}: #{response.code} #{response.message}"
           end
 
-          save_path = ensure_extension(path, response["Content-Type"])
-          File.open(save_path, "wb") do |file|
-            response.read_body { |chunk| file.write(chunk) }
-          end
-          return save_path
+          return save_response(path, response)
         end
       end
     end
@@ -226,6 +221,12 @@ module FetchImages
               ".bmp"
             when /image\/avif/
               ".avif"
+            when /video\/mp4/
+              ".mp4"
+            when /video\/webm/
+              ".webm"
+            when /application\/vnd\.apple\.mpegurl/, /application\/x-mpegurl/
+              ".m3u8"
             else
               ".img"
             end
@@ -249,11 +250,62 @@ module FetchImages
         key, value = pair.split("=", 2)
         next if key.nil?
 
-        @cookies[key] = value
+        if value.to_s.empty?
+          @cookies.delete(key)
+        else
+          @cookies[key] = value
+        end
       end
       cookie_name = session_cookie_name
       @session_id ||= @cookies[cookie_name] if cookie_name
       log("Stored cookies: #{cookie_keys.join(', ')}")
+    end
+
+    def append_query_params(uri, params)
+      return uri if params.nil? || params.empty?
+
+      query = URI.encode_www_form(params)
+      updated_uri = uri.dup
+      updated_uri.query = [updated_uri.query, query].compact.join("&")
+      updated_uri
+    end
+
+    def build_request(request_class, uri, headers)
+      request = request_class.new(uri)
+      request["User-Agent"] = USER_AGENT
+      headers.each { |key, value| request[key] = value }
+      cookie_header = build_cookie_header
+      request["Cookie"] = cookie_header unless cookie_header.empty?
+      request
+    end
+
+    def with_http(uri)
+      Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https", open_timeout: OPEN_TIMEOUT, read_timeout: READ_TIMEOUT) do |http|
+        yield(http)
+      end
+    end
+
+    def save_response(path, response)
+      save_path = ensure_extension(path, response["Content-Type"])
+      FileUtils.mkdir_p(File.dirname(save_path))
+
+      Tempfile.create([File.basename(save_path), ".part"], File.dirname(save_path), binmode: true) do |file|
+        response.read_body { |chunk| file.write(chunk) }
+        file.flush
+        file.close
+
+        File.delete(save_path) if File.exist?(save_path)
+        File.rename(file.path, save_path)
+      end
+
+      save_path
+    end
+
+    def existing_download_path(path)
+      return path if File.exist?(path)
+      return nil unless File.extname(path).empty?
+
+      Dir.glob("#{path}.*").sort.first
     end
 
     def authenticate!
