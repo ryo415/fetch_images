@@ -116,11 +116,7 @@ module FetchImages
 
       def make_post_directory_name(post_id, payload)
         title = payload["title"] || "post"
-        fanclub = payload["fanclub"] || {}
-        creator = fanclub["fanclub_name"] || fanclub["name"] || fanclub["creator_name"] || fanclub["id"] || "fantia"
-        creator_slug = slugify(creator)
-        title_slug = slugify(title)
-        ["fantia", creator_slug, post_id, title_slug].reject(&:empty?).join("_")
+        sanitize_directory_name(title, fallback: post_id.to_s.empty? ? "post" : post_id.to_s)
       end
 
       def extract_authenticity_token(html)

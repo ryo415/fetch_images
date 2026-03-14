@@ -157,11 +157,8 @@ module FetchImages
       end
 
       def make_post_directory_name(post_id, payload)
-        creator = payload["creatorId"] || payload.dig("user", "userId") || "fanbox"
         title = payload["title"] || payload.dig("body", "title") || "post"
-        creator_slug = slugify(creator)
-        title_slug = slugify(title)
-        ["fanbox", creator_slug, post_id, title_slug].reject(&:empty?).join("_")
+        sanitize_directory_name(title, fallback: post_id.to_s.empty? ? "post" : post_id.to_s)
       end
 
       def extra_download_headers(page_url, image_url)

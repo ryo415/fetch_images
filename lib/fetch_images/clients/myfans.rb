@@ -118,17 +118,55 @@ module FetchImages
       def make_post_directory_name(post_id, payload)
         html = payload["html"].to_s
         doc = Nokogiri::HTML(html)
-        title = doc.at_css("meta[property='og:title']")&.[]("content") ||
-          doc.at_css("title")&.text&.strip ||
-          "post"
-        creator = doc.at_css("meta[name='author']")&.[]("content") ||
-          doc.at_css("meta[property='og:site_name']")&.[]("content") ||
-          extract_creator_from_url(payload["url"]) ||
-          "myfans"
+        body_text = extract_post_body_text(doc)
+        sanitize_directory_name(body_text, fallback: post_id.to_s.empty? ? "post" : post_id.to_s)
+      end
 
-        creator_slug = slugify(creator)
-        title_slug = slugify(title)
-        ["myfans", creator_slug, post_id, title_slug].reject(&:empty?).join("_")
+      def extract_post_body_text(doc)
+        candidates = []
+        candidates << doc.at_css("meta[property='og:description']")&.[]("content")
+        candidates << doc.at_css("meta[name='description']")&.[]("content")
+        candidates.concat(extract_body_text_candidates(doc))
+
+        cleaned = candidates.filter_map do |candidate|
+          text = clean_post_body_text(candidate)
+          next if text.empty?
+
+          text
+        end
+
+        cleaned.max_by(&:length) || "post"
+      end
+
+      def extract_body_text_candidates(doc)
+        selectors = [
+          "article",
+          "main",
+          "[class*='post']",
+          "[class*='content']",
+          "[class*='body']",
+          "[class*='description']",
+          "[data-testid*='post']",
+          "[data-testid*='content']"
+        ]
+
+        selectors.flat_map do |selector|
+          doc.css(selector).map(&:text)
+        end
+      end
+
+      def clean_post_body_text(text)
+        normalized = text.to_s
+        normalized = normalized.unicode_normalize(:nfkc) if normalized.respond_to?(:unicode_normalize)
+        normalized = normalized.gsub(/\r\n?/, "\n")
+        normalized = normalized.lines.filter_map do |line|
+          stripped = line.strip
+          next if stripped.empty?
+          next if stripped.match?(/\A(?:#\S+\s*)+\z/)
+
+          stripped.gsub(/(^|\s)#\S+/, " ").strip
+        end.join(" ")
+        normalized.gsub(/\s+/, " ").strip
       end
 
       def extract_post_id(url)

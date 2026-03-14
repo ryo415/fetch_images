@@ -199,6 +199,17 @@ module FetchImages
       normalized.empty? ? "post" : normalized
     end
 
+    def sanitize_directory_name(name, fallback: "post")
+      sanitized = name.to_s
+      sanitized = sanitized.unicode_normalize(:nfkc) if sanitized.respond_to?(:unicode_normalize)
+      sanitized = sanitized.delete("\u0000")
+      sanitized = sanitized.gsub(/[[:cntrl:]]+/, " ")
+      sanitized = sanitized.gsub(/[\\\/:*?"<>|]/, "_")
+      sanitized = sanitized.gsub(/\s+/, " ").strip
+      sanitized = sanitized.gsub(/\A\.+/, "").gsub(/\.+\z/, "")
+      sanitized.empty? ? fallback : sanitized
+    end
+
     def sanitize_filename(filename)
       sanitized = filename.gsub(File::SEPARATOR, "_").delete("\u0000")
       sanitized = sanitized.gsub(/\.+\z/, "")
