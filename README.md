@@ -25,32 +25,54 @@ bundle install --path vender/bundle
 ## 使い方
 
 ```bash
-bundle exec bin/fetch_images [options] <POST_URL> [<POST_URL> ...]
+bundle exec bin/fetch_images <subcommand> [options] <POST_URL> [<POST_URL> ...]
 ```
 
 デフォルトの保存先は `downloads/` です。
 
-### オプション
+利用できるサブコマンド:
+
+- `fantia`
+- `fanbox`
+- `myfans`
+
+サブコマンドは必須です。指定したサブコマンドと URL のサービスが一致しない場合はエラーになります。
+
+### 共通オプション
 
 - `-o`, `--output DIR`: 出力先ディレクトリ（デフォルト: `./downloads`）
-- `--fantia-session TOKEN`: Fantia の `_session_id`
-- `--fantia-cookie HEADER`: Fantia の Cookie ヘッダー全文
-- `--fantia-email EMAIL`: Fantia ログイン用メールアドレス
-- `--fantia-password PASSWORD`: Fantia ログイン用パスワード
-- `--fanbox-session TOKEN`: FANBOX の `FANBOXSESSID`
-- `--fanbox-cookie HEADER`: FANBOX の Cookie ヘッダー全文
-- `--fanbox-post-info-json PATH`: ブラウザで取得した `post.info` のJSONを直接使用
-- `--fanbox-playwright`: FANBOX API が 403 のとき Playwright フォールバックを有効化
-- `--fanbox-playwright-browser NAME`: `chromium|firefox|webkit`（デフォルト: `chromium`）
-- `--myfans-session TOKEN`: MyFans のセッションCookie値
-- `--myfans-cookie HEADER`: MyFans の Cookie ヘッダー全文
-- `--myfans-playwright`: MyFans の動画抽出で Playwright フォールバックを有効化
-- `--myfans-playwright-browser NAME`: `chromium|firefox|webkit`（デフォルト: `chromium`）
 - `--overwrite`: 既存ファイルを上書き
 - `--dry-run`: ダウンロードせず対象件数のみ表示
 - `-v`, `--verbose`: デバッグログを標準エラーへ出力
 - `--log-file PATH`: ログをファイル出力（省略時 `./fetch_images.log`）
 - `-h`, `--help`: ヘルプ表示
+
+### サブコマンド別オプション
+
+`fantia`:
+
+- `--fantia-session TOKEN`: Fantia の `_session_id`
+- `--fantia-cookie HEADER`: Fantia の Cookie ヘッダー全文
+- `--fantia-email EMAIL`: Fantia ログイン用メールアドレス
+- `--fantia-password PASSWORD`: Fantia ログイン用パスワード
+- 必須条件: `--fantia-cookie` または `--fantia-session`、もしくは `--fantia-email` と `--fantia-password` の両方
+
+`fanbox`:
+
+- `--fanbox-session TOKEN`: FANBOX の `FANBOXSESSID`
+- `--fanbox-cookie HEADER`: FANBOX の Cookie ヘッダー全文
+- `--fanbox-post-info-json PATH`: ブラウザで取得した `post.info` のJSONを直接使用
+- `--fanbox-playwright`: FANBOX API が 403 のとき Playwright フォールバックを有効化
+- `--fanbox-playwright-browser NAME`: `chromium|firefox|webkit`（デフォルト: `chromium`）
+- 必須条件: `--fanbox-session` または `--fanbox-cookie`、もしくは `--fanbox-post-info-json`
+
+`myfans`:
+
+- `--myfans-session TOKEN`: MyFans のセッションCookie値
+- `--myfans-cookie HEADER`: MyFans の Cookie ヘッダー全文
+- `--myfans-playwright`: MyFans の動画抽出で Playwright フォールバックを有効化
+- `--myfans-playwright-browser NAME`: `chromium|firefox|webkit`（デフォルト: `chromium`）
+- 必須条件: `--myfans-session` または `--myfans-cookie`
 
 ## 認証
 
@@ -74,7 +96,7 @@ bundle exec bin/fetch_images [options] <POST_URL> [<POST_URL> ...]
 Fantia（Cookie ヘッダー指定）:
 
 ```bash
-bundle exec bin/fetch_images \
+bundle exec bin/fetch_images fantia \
   --fantia-cookie 'cookieヘッダー全文' \
   --output downloads_fantia \
   https://fantia.jp/posts/xxxxxx
@@ -83,7 +105,7 @@ bundle exec bin/fetch_images \
 デバッグログ付き:
 
 ```bash
-bundle exec bin/fetch_images \
+bundle exec bin/fetch_images fantia \
   --fantia-cookie 'cookieヘッダー全文' \
   --verbose \
   --log-file fantia_debug.log \
@@ -93,7 +115,7 @@ bundle exec bin/fetch_images \
 FANBOX（通常取得: セッション値のみ）:
 
 ```bash
-bundle exec bin/fetch_images \
+bundle exec bin/fetch_images fanbox \
   --fanbox-session 'FANBOXSESSIDの値' \
   --output downloads_fanbox \
   "https://<creator>.fanbox.cc/posts/<id>"
@@ -102,7 +124,7 @@ bundle exec bin/fetch_images \
 FANBOX（403対策: Cookie + Playwright）:
 
 ```bash
-bundle exec bin/fetch_images \
+bundle exec bin/fetch_images fanbox \
   --fanbox-cookie 'cookieヘッダー全文' \
   --fanbox-playwright \
   --fanbox-playwright-browser chromium \
@@ -114,7 +136,7 @@ bundle exec bin/fetch_images \
 FANBOX（`post.info` JSON を手動利用）:
 
 ```bash
-bundle exec bin/fetch_images \
+bundle exec bin/fetch_images fanbox \
   --fanbox-post-info-json /path/to/post.info.json \
   --output downloads_fanbox \
   "https://<creator>.fanbox.cc/posts/<id>"
@@ -123,12 +145,28 @@ bundle exec bin/fetch_images \
 MyFans（Cookie ヘッダー指定）:
 
 ```bash
-bundle exec bin/fetch_images \
+bundle exec bin/fetch_images myfans \
   --myfans-cookie 'cookieヘッダー全文' \
   --myfans-playwright \
   --myfans-playwright-browser chromium \
   --output downloads_myfans \
   "https://myfans.jp/..."
+```
+
+## Usage
+
+全体ヘルプ:
+
+```bash
+bundle exec bin/fetch_images --help
+```
+
+サブコマンド別ヘルプ:
+
+```bash
+bundle exec bin/fetch_images fantia --help
+bundle exec bin/fetch_images fanbox --help
+bundle exec bin/fetch_images myfans --help
 ```
 
 MyFans（URL指定の注意）:
