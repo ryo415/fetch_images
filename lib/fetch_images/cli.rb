@@ -109,8 +109,8 @@ module FetchImages
             handler: ->(cli, value) { cli.set_option(:fanbox_post_info_json, value) }
           },
           {
-            args: ["--fanbox-playwright", "Enable Playwright fallback for FANBOX API 403 responses"],
-            handler: ->(cli, _) { cli.set_option(:fanbox_playwright, true) }
+            args: ["--[no-]fanbox-playwright", "Enable Playwright fallback for FANBOX API 403 responses"],
+            handler: ->(cli, value) { cli.set_option(:fanbox_playwright, value) }
           },
           {
             args: ["--fanbox-playwright-browser NAME", "Playwright browser: chromium|firefox|webkit"],
@@ -156,8 +156,8 @@ module FetchImages
             handler: ->(cli, value) { cli.set_option(:myfans_cookie, value) }
           },
           {
-            args: ["--myfans-playwright", "Enable Playwright fallback for MyFans video extraction"],
-            handler: ->(cli, _) { cli.set_option(:myfans_playwright, true) }
+            args: ["--[no-]myfans-playwright", "Enable Playwright fallback for MyFans video extraction"],
+            handler: ->(cli, value) { cli.set_option(:myfans_playwright, value) }
           },
           {
             args: ["--myfans-playwright-browser NAME", "Playwright browser for MyFans: chromium|firefox|webkit"],
@@ -187,14 +187,22 @@ module FetchImages
       { email: email, password: password }
     end
 
-    def initialize(argv)
+    def initialize(argv, input: $stdin, output: $stdout, error: $stderr, strict_results: false)
       @argv = argv.dup
+      @input, @output, @error = input, output, error
+      @strict_results = strict_results
       @subcommand = nil
-      @options = build_default_options
+      @explicit_auth = {}
     end
 
     def run
+      if %w[auth config].include?(@argv.first)
+        return SettingsCommand.new(@argv.shift, @argv, input: @input, output: @output).run
+      end
+      return run_queue if @argv.first == "queue"
+
       extract_subcommand!
+      @options = build_default_options
       parser = build_parser
       urls = parser.parse!(@argv)
       validate_command!(urls)
@@ -204,7 +212,7 @@ module FetchImages
       warn "Debug log file: #{logger.path}" if logger
 
       run_downloads(urls, build_client(logger))
-    rescue OptionParser::ParseError, ValidationError => e
+    rescue OptionParser::ParseError, ValidationError, SystemCallError => e
       warn e.message
       puts parser if parser
       1
@@ -213,6 +221,11 @@ module FetchImages
     end
 
     def set_option(key, value)
+      site = key.to_s.split("_").first
+      if authentication_keys(site).include?(key) && !@explicit_auth[site]
+        authentication_keys(site).each { |auth_key| @options[auth_key] = nil }
+        @explicit_auth[site] = true
+      end
       @options[key] = value
     end
 
@@ -226,6 +239,54 @@ module FetchImages
 
     private
 
+    def puts(message)
+      if @strict_results
+        message.to_s.each_line { |line| @output.puts("[RESULT] #{line.chomp}") }
+      else
+        @output.puts(message)
+      end
+    end
+
+    def warn(message)
+      if @strict_results
+        message.to_s.each_line { |line| @error.puts("[ERROR]  #{line.chomp}") }
+      else
+        @error.puts(message)
+      end
+    end
+
+    def authentication_keys(site)
+      %w[cookie session email password post_info_json].map { |name| "#{site}_#{name}".to_sym }
+    end
+
+    def run_queue
+      @argv.shift
+      @options = {}
+      help = false
+      parser = OptionParser.new do |opts|
+        opts.banner = "Usage: fetch_images queue [options] < urls.txt (or paste URLs interactively)"
+        add_option_group(opts, "Common options:", COMMON_OPTION_DEFINITIONS)
+        opts.on("-h", "--help", "Show help") { help = true }
+      end
+      remaining = parser.parse!(@argv)
+      if help
+        puts(parser)
+        return 0
+      end
+      raise ValidationError, "queue reads URLs from standard input; do not pass URL arguments" unless remaining.empty?
+
+      args = []
+      args.concat(["--output", option(:output)]) if option(:output)
+      args.concat(["--log-file", option(:log_file)]) if option(:log_file)
+      %i[overwrite dry_run verbose].each { |key| args << "--#{key.to_s.tr('_', '-')}" if option(key) }
+      DownloadQueue.new(input: @input, output: @output) do |site, url|
+        self.class.new([site, *args, url], input: @input, output: @output, error: @error, strict_results: true).run
+      end.run
+    rescue Interrupt
+      warn "[INFO]   Queue interrupted. Unfinished URLs must be added again."
+      130
+    end
+
     def build_default_options
       options = {
         output: DEFAULT_OUTPUT_DIR,
@@ -235,12 +296,24 @@ module FetchImages
         log_file: nil
       }
 
-      COMMANDS.each_value do |command|
+      if @subcommand
+        saved = Settings.new.for_site(@subcommand)
+        options[:output] = saved["output"] if saved.key?("output")
+        options["#{@subcommand}_cookie".to_sym] = saved["cookie"]
+        options["#{@subcommand}_playwright".to_sym] = saved["playwright"] if saved.key?("playwright")
+        options["#{@subcommand}_playwright_browser".to_sym] = saved["browser"] if saved.key?("browser")
+      end
+      COMMANDS.each do |site, command|
+        auth_keys = authentication_keys(site)
+        env = command.fetch(:env_defaults, {})
+        if env.any? { |key, name| auth_keys.include?(key) && !ENV[name].to_s.strip.empty? }
+          auth_keys.each { |key| options[key] = nil }
+        end
         command.fetch(:env_defaults, {}).each do |key, env_name|
-          options[key] = ENV[env_name]
+          options[key] = ENV[env_name] unless ENV[env_name].to_s.strip.empty?
         end
         command.fetch(:option_defaults, {}).each do |key, value|
-          options[key] = value
+          options[key] = value unless options.key?(key)
         end
       end
 
@@ -285,6 +358,9 @@ module FetchImages
         COMMANDS.each do |name, config|
           opts.separator format("  %-8s %s", name, config.fetch(:description))
         end
+        opts.separator "  auth     Register/update Cookie (auth <site> [--clear])"
+        opts.separator "  config   Save site defaults (config <site> --help)"
+        opts.separator "  queue    Accept mixed-site post URLs until :quit / EOF"
         opts.on("-h", "--help", "Show this help message") { puts opts; exit }
       end
     end
@@ -317,6 +393,10 @@ module FetchImages
 
       result = client.download_images(url, option(:output), overwrite: option(:overwrite), dry_run: option(:dry_run))
       puts(download_result_message(url, result))
+      if @strict_results && (result.planned.empty? ||
+          (!option(:dry_run) && result.downloaded.length + result.skipped.length < result.planned.length))
+        raise ValidationError, "No files found or download incomplete. Check access/Cookie; use auth #{@subcommand} to update Cookie."
+      end
     end
 
     def download_result_message(url, result)

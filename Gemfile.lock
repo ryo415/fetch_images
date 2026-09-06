@@ -1,12 +1,17 @@
 GEM
   remote: https://rubygems.org/
   specs:
+    drb (2.2.3)
     mini_portile2 (2.8.9)
+    minitest (6.0.6)
+      drb (~> 2.0)
+      prism (~> 1.5)
     nokogiri (1.19.0)
       mini_portile2 (~> 2.8.2)
       racc (~> 1.4)
     nokogiri (1.19.0-x86_64-linux-gnu)
       racc (~> 1.4)
+    prism (1.9.0)
     racc (1.8.1)
 
 PLATFORMS
@@ -14,6 +19,7 @@ PLATFORMS
   x86_64-linux
 
 DEPENDENCIES
+  minitest (~> 6.0)
   nokogiri (~> 1.15)
 
 BUNDLED WITH
