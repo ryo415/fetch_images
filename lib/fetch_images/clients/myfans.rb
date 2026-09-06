@@ -101,15 +101,21 @@ module FetchImages
           add_media_url(image_urls, base_uri, item[:url], type: :image) if item[:type] == :image
         end
 
+        playwright_images = []
         if video_urls.empty? && @playwright
           fallback = fetch_media_urls_with_playwright(url)
           Array(fallback[:videos]).each { |u| video_urls << u }
-          Array(fallback[:images]).each { |u| image_urls << u }
+          playwright_images = Array(fallback[:images])
+          playwright_images.each { |u| image_urls << u }
         end
 
-        filtered_images = image_urls.to_a.reject { |u| thumbnail_like?(u) }
+        image_candidates = playwright_images.any? ? playwright_images : image_urls.to_a
+        filtered_images = image_candidates.reject { |u| non_post_image_url?(u) }
         filtered_videos = video_urls.to_a.select { |u| downloadable_video_url?(u) }
-        log("MyFans extraction: videos=#{video_urls.size} filtered_videos=#{filtered_videos.size} images=#{image_urls.size} filtered_images=#{filtered_images.size}")
+        log(
+          "MyFans extraction: videos=#{video_urls.size} filtered_videos=#{filtered_videos.size} " \
+          "images=#{image_urls.size} playwright_images=#{playwright_images.size} filtered_images=#{filtered_images.size}"
+        )
         { videos: filtered_videos, images: filtered_images }
       rescue URI::InvalidURIError
         { videos: [], images: [] }
@@ -348,6 +354,17 @@ module FetchImages
           path.include?("small")
       rescue URI::InvalidURIError
         false
+      end
+
+      def non_post_image_url?(url)
+        uri = URI.parse(url)
+        path = uri.path.to_s.downcase
+        basename = File.basename(path)
+        thumbnail_like?(url) ||
+          basename == "c.gif" ||
+          path.match?(%r{/(?:collect|analytics|tracking|beacon|pixel)(?:/|$)})
+      rescue URI::InvalidURIError
+        true
       end
 
       def hls_url?(url)

@@ -5,6 +5,7 @@ import { chromium, firefox, webkit } from "playwright";
 
 const VIDEO_EXT_RE = /\.(mp4|webm|mov|m4v|m3u8)(\?|$)/i;
 const IMAGE_EXT_RE = /\.(jpe?g|png|gif|bmp|webp|avif)(\?|$)/i;
+const MIN_POST_IMAGE_EDGE = 800;
 
 function parseArgs(argv) {
   const args = {};
@@ -59,7 +60,22 @@ function likelyVideoUrl(url) {
 function likelyImageUrl(url) {
   try {
     const u = new URL(url);
-    return IMAGE_EXT_RE.test(u.pathname.toLowerCase());
+    const path = u.pathname.toLowerCase();
+    const name = path.split("/").pop() || "";
+    if (!IMAGE_EXT_RE.test(path)) return false;
+    if (name === "c.gif") return false;
+    if (/(^|\/)(collect|analytics|tracking|beacon|pixel)(\/|$)/i.test(path)) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function likelyPostApiResponse(url) {
+  try {
+    const u = new URL(url);
+    if (!/(^|\.)myfans\.jp$/i.test(u.hostname)) return false;
+    return /\/api\/v\d+\/posts(?:\/|$)/i.test(u.pathname);
   } catch {
     return false;
   }
@@ -121,11 +137,14 @@ async function main() {
     }
   };
 
-  page.on("request", (req) => collect(req.url()));
+  page.on("request", (req) => {
+    const requestUrl = req.url();
+    if (likelyVideoUrl(requestUrl)) collect(requestUrl);
+  });
   page.on("response", async (res) => {
     const responseUrl = res.url();
-    collect(responseUrl);
-    if (!/\/api\/v2\/posts\/[^/]+\/videos/i.test(responseUrl)) return;
+    if (likelyVideoUrl(responseUrl)) collect(responseUrl);
+    if (!likelyPostApiResponse(responseUrl)) return;
     if (!res.ok()) return;
     try {
       const data = await res.json();
@@ -138,9 +157,17 @@ async function main() {
   await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
   await page.waitForTimeout(8000);
 
-  const domMedia = await page.evaluate(() => {
+  const domMedia = await page.evaluate((minPostImageEdge) => {
     const out = [];
-    for (const node of document.querySelectorAll("video, source, img")) {
+    const roots = [...document.querySelectorAll("article, main, [class*='post'], [class*='content']")];
+    const scope = roots.length > 0 ? roots : [document.body];
+    const nodes = new Set(scope.flatMap((root) => [...root.querySelectorAll("video, source, img")]));
+    for (const node of nodes) {
+      if (node.tagName.toLowerCase() === "img") {
+        const width = node.naturalWidth || node.width || 0;
+        const height = node.naturalHeight || node.height || 0;
+        if (Math.max(width, height) < minPostImageEdge) continue;
+      }
       for (const attr of ["src", "data-src", "data-video-src", "data-original", "data-lazy-src"]) {
         const v = node.getAttribute(attr);
         if (v) out.push(v);
@@ -155,7 +182,7 @@ async function main() {
       }
     }
     return out;
-  });
+  }, MIN_POST_IMAGE_EDGE);
   domMedia.forEach((u) => collect(new URL(u, url).toString()));
 
   fs.writeFileSync(
