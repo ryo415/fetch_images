@@ -1,11 +1,10 @@
 # frozen_string_literal: true
 
-require "fileutils"
 require "optparse"
 
 module FetchImages
   class CLI
-    DEFAULT_OUTPUT_DIR = File.expand_path("downloads")
+    DEFAULT_OUTPUT_DIR = OptionResolver::DEFAULT_OUTPUT_DIR
     COMMON_OPTION_DEFINITIONS = [
       {
         args: ["-o", "--output DIR", "Directory for downloaded files (default: ./downloads)"],
@@ -182,9 +181,7 @@ module FetchImages
     }.freeze
 
     def self.build_credentials(email, password)
-      return nil if email.to_s.empty? || password.to_s.empty?
-
-      { email: email, password: password }
+      OptionResolver.build_credentials(email, password)
     end
 
     def initialize(argv, input: $stdin, output: $stdout, error: $stderr, strict_results: false)
@@ -192,7 +189,8 @@ module FetchImages
       @input, @output, @error = input, output, error
       @strict_results = strict_results
       @subcommand = nil
-      @explicit_auth = {}
+      @explicit_options = {}
+      @reporter = Reporter.new(output: output, error: error, prefixed: strict_results)
     end
 
     def run
@@ -202,35 +200,29 @@ module FetchImages
       return run_queue if @argv.first == "queue"
 
       extract_subcommand!
-      @options = build_default_options
+      @options = OptionResolver.new(site: @subcommand, commands: COMMANDS)
       parser = build_parser
       urls = parser.parse!(@argv)
       validate_command!(urls)
 
-      FileUtils.mkdir_p(option(:output))
-      logger = Logger.build(verbose: option(:verbose), log_file: option(:log_file))
-      warn "Debug log file: #{logger.path}" if logger
-
-      run_downloads(urls, build_client(logger))
+      DownloadRunner.new(
+        site: @subcommand, command: command_config, options: @options,
+        reporter: @reporter, strict_results: @strict_results,
+        client_builder: method(:build_client)
+      ).run(urls)
     rescue OptionParser::ParseError, ValidationError, SystemCallError => e
       warn e.message
       puts parser if parser
       1
-    ensure
-      logger&.close
     end
 
     def set_option(key, value)
-      site = key.to_s.split("_").first
-      if authentication_keys(site).include?(key) && !@explicit_auth[site]
-        authentication_keys(site).each { |auth_key| @options[auth_key] = nil }
-        @explicit_auth[site] = true
-      end
-      @options[key] = value
+      @explicit_options[key] = value
+      @options&.set_option(key, value)
     end
 
     def option(key)
-      @options[key]
+      @options ? @options.option(key) : @explicit_options[key]
     end
 
     def option_present?(key)
@@ -240,28 +232,15 @@ module FetchImages
     private
 
     def puts(message)
-      if @strict_results
-        message.to_s.each_line { |line| @output.puts("[RESULT] #{line.chomp}") }
-      else
-        @output.puts(message)
-      end
+      @reporter.message(message)
     end
 
     def warn(message)
-      if @strict_results
-        message.to_s.each_line { |line| @error.puts("[ERROR]  #{line.chomp}") }
-      else
-        @error.puts(message)
-      end
-    end
-
-    def authentication_keys(site)
-      %w[cookie session email password post_info_json].map { |name| "#{site}_#{name}".to_sym }
+      @reporter.warning(message)
     end
 
     def run_queue
       @argv.shift
-      @options = {}
       help = false
       parser = OptionParser.new do |opts|
         opts.banner = "Usage: fetch_images queue [options] < urls.txt (or paste URLs interactively)"
@@ -275,71 +254,31 @@ module FetchImages
       end
       raise ValidationError, "queue reads URLs from standard input; do not pass URL arguments" unless remaining.empty?
 
-      args = []
-      args.concat(["--output", option(:output)]) if option(:output)
-      args.concat(["--log-file", option(:log_file)]) if option(:log_file)
-      %i[overwrite dry_run verbose].each { |key| args << "--#{key.to_s.tr('_', '-')}" if option(key) }
       DownloadQueue.new(input: @input, output: @output) do |site, url|
-        self.class.new([site, *args, url], input: @input, output: @output, error: @error, strict_results: true).run
+        run_queued_download(site, url)
       end.run
     rescue Interrupt
       warn "[INFO]   Queue interrupted. Unfinished URLs must be added again."
       130
     end
 
-    def build_default_options
-      options = {
-        output: DEFAULT_OUTPUT_DIR,
-        overwrite: false,
-        dry_run: false,
-        verbose: false,
-        log_file: nil
-      }
-
-      if @subcommand
-        saved = Settings.new.for_site(@subcommand)
-        options[:output] = saved["output"] if saved.key?("output")
-        options["#{@subcommand}_cookie".to_sym] = saved["cookie"]
-        options["#{@subcommand}_playwright".to_sym] = saved["playwright"] if saved.key?("playwright")
-        options["#{@subcommand}_playwright_browser".to_sym] = saved["browser"] if saved.key?("browser")
-      end
-      COMMANDS.each do |site, command|
-        auth_keys = authentication_keys(site)
-        env = command.fetch(:env_defaults, {})
-        if env.any? { |key, name| auth_keys.include?(key) && !ENV[name].to_s.strip.empty? }
-          auth_keys.each { |key| options[key] = nil }
-        end
-        command.fetch(:env_defaults, {}).each do |key, env_name|
-          options[key] = ENV[env_name] unless ENV[env_name].to_s.strip.empty?
-        end
-        command.fetch(:option_defaults, {}).each do |key, value|
-          options[key] = value unless options.key?(key)
-        end
-      end
-
-      options
+    def run_queued_download(site, url)
+      reporter = Reporter.new(output: @output, error: @error, prefixed: true)
+      options = OptionResolver.new(site: site, commands: COMMANDS)
+      parser = build_subcommand_parser(site)
+      @explicit_options.each { |key, value| options.set_option(key, value) }
+      DownloadRunner.new(
+        site: site, command: COMMANDS.fetch(site), options: options,
+        reporter: reporter, strict_results: true
+      ).run([url])
+    rescue ValidationError, SystemCallError => e
+      reporter.warning(e.message)
+      reporter.message(parser) if parser
+      1
     end
 
     def build_client(logger)
-      command_config.fetch(:client_builder).call(self, logger)
-    end
-
-    def run_downloads(urls, client)
-      exit_code = 0
-
-      urls.each do |url|
-        begin
-          handle_download(url, client)
-        rescue AuthenticationError, UnsupportedUrlError, ValidationError => e
-          warn e.message
-          exit_code = 1
-        rescue StandardError => e
-          warn "Error while processing #{url}: #{e.message}"
-          exit_code = 1
-        end
-      end
-
-      exit_code
+      command_config.fetch(:client_builder).call(@options, logger)
     end
 
     def build_parser
@@ -365,11 +304,11 @@ module FetchImages
       end
     end
 
-    def build_subcommand_parser
+    def build_subcommand_parser(site = @subcommand)
       OptionParser.new do |opts|
-        opts.banner = "Usage: fetch_images #{@subcommand} [options] URL [URL ...]"
+        opts.banner = "Usage: fetch_images #{site} [options] URL [URL ...]"
         add_option_group(opts, "Common options:", COMMON_OPTION_DEFINITIONS)
-        add_option_group(opts, command_config.fetch(:options_title), command_config.fetch(:option_definitions))
+        add_option_group(opts, COMMANDS.fetch(site).fetch(:options_title), COMMANDS.fetch(site).fetch(:option_definitions))
         opts.on("-h", "--help", "Show this help message") { puts opts; exit }
       end
     end
@@ -388,29 +327,6 @@ module FetchImages
       opts.on(*args) { |value| handler.call(self, value) }
     end
 
-    def handle_download(url, client)
-      raise ValidationError, mismatch_error_message(url) unless client.supports_url?(url)
-
-      result = client.download_images(url, option(:output), overwrite: option(:overwrite), dry_run: option(:dry_run))
-      puts(download_result_message(url, result))
-      if @strict_results && (result.planned.empty? ||
-          (!option(:dry_run) && result.downloaded.length + result.skipped.length < result.planned.length))
-        raise ValidationError, "No files found or download incomplete. Check access/Cookie; use auth #{@subcommand} to update Cookie."
-      end
-    end
-
-    def download_result_message(url, result)
-      if option(:dry_run)
-        "Dry run: would download #{result.planned.length} file(s) from #{url}"
-      elsif result.downloaded.any?
-        "Downloaded #{result.downloaded.length} file(s) from #{url}"
-      elsif result.skipped.any?
-        "Skipped #{result.skipped.length} existing file(s) for #{url}"
-      else
-        "No downloadable files found for #{url}"
-      end
-    end
-
     def extract_subcommand!
       first = @argv.first.to_s
       return if first.empty?
@@ -427,15 +343,11 @@ module FetchImages
       raise ValidationError, "Subcommand is required: choose one of #{COMMANDS.keys.join(', ')}" unless @subcommand
       raise ValidationError, "At least one URL is required" if urls.empty?
 
-      command_config.fetch(:validator).call(self)
     end
 
     def command_config
       COMMANDS.fetch(@subcommand)
     end
 
-    def mismatch_error_message(url)
-      "#{@subcommand} subcommand requires a #{command_config.fetch(:label)} post URL: #{url}"
-    end
   end
 end
