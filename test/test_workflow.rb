@@ -126,6 +126,80 @@ class WorkflowTest < Minitest::Test
     refute File.exist?(File.join(@dir, "fetch_images", "config.json"))
   end
 
+  def test_queue_common_options_override_saved_output_and_keep_log_path
+    saved_output = File.join(@dir, "saved")
+    chosen_output = File.join(@dir, "chosen output")
+    log_path = File.join(@dir, "queue log.txt")
+    run_cli(["config", "fanbox", "--output", saved_output])
+    payload = File.join(@dir, "payload.json")
+    File.write(payload, JSON.generate({ "body" => { "body" => { "images" => [{ "originalUrl" => "https://example.com/a.jpg" }] } } }))
+    ENV["FANBOX_POST_INFO_JSON"] = payload
+    code, out, err = run_cli(["queue", "--dry-run", "--output", chosen_output, "--log-file", log_path], "https://creator.fanbox.cc/posts/1\n")
+    assert_equal 0, code, err
+    assert Dir.exist?(chosen_output)
+    refute Dir.exist?(saved_output)
+    assert File.size?(log_path)
+    assert_includes out, "[RESULT] Dry run: would download 1 file(s)"
+    assert_includes err, "[ERROR]  Debug log file: #{log_path}"
+  end
+
+  def test_explicit_fantia_credentials_are_kept_together
+    ENV["FANTIA_COOKIE"] = "session=environment"
+    code, _out, err = run_cli(["fantia", "--fantia-email", "test@example.com", "https://fantia.jp/posts/1"])
+    assert_equal 1, code
+    assert_includes err, "requires both"
+  end
+
+  def test_normal_command_preserves_zero_result_success_and_unprefixed_output
+    run_cli(%w[auth myfans], "myfans_session=saved\n")
+    output = StringIO.new
+    cli = CapturingCLI.new(["myfans", "--output", @dir, "https://myfans.jp/posts/1"], output: output)
+    cli.result = FetchImages::DownloadResult.new
+    assert_equal 0, cli.run
+    assert_equal "No downloadable files found for https://myfans.jp/posts/1\n", output.string
+  end
+
+  def test_queue_config_read_error_does_not_print_usage
+    path = File.join(@dir, "fetch_images", "config.json")
+    FileUtils.mkdir_p(File.dirname(path))
+    File.write(path, "broken")
+    code, out, err = run_cli(%w[queue], "https://myfans.jp/posts/1\n")
+    assert_equal 1, code
+    assert_includes err, "[ERROR]"
+    refute_includes out, "Usage:"
+  end
+
+  def test_fantia_explicit_credential_pair_replaces_environment_as_a_group
+    resolver = FetchImages::OptionResolver.new(
+      site: "fantia", commands: FetchImages::CLI::COMMANDS,
+      env: { "FANTIA_COOKIE" => "session=old", "FANTIA_PASSWORD" => "old-password" }
+    )
+    resolver.set_option(:fantia_email, "test@example.com")
+    resolver.set_option(:fantia_password, "new-password")
+    assert_nil resolver.option(:fantia_cookie)
+    assert_equal "test@example.com", resolver.option(:fantia_email)
+    assert_equal "new-password", resolver.option(:fantia_password)
+    FetchImages::CLI::COMMANDS.fetch("fantia").fetch(:validator).call(resolver)
+  end
+
+  def test_queue_reloads_saved_output_before_each_job
+    first_output, second_output = File.join(@dir, "first"), File.join(@dir, "second")
+    run_cli(["config", "fanbox", "--output", first_output])
+    payload = File.join(@dir, "payload.json")
+    File.write(payload, JSON.generate({ "body" => { "body" => { "images" => [{ "originalUrl" => "https://example.com/a.jpg" }] } } }))
+    ENV["FANBOX_POST_INFO_JSON"] = payload
+    output = StringIO.new
+    output.define_singleton_method(:puts) do |text|
+      FetchImages::Settings.new.update("fanbox", { "output" => second_output }) if text.start_with?("[DONE]")
+      super(text)
+    end
+    input = StringIO.new("https://creator.fanbox.cc/posts/1\nhttps://creator.fanbox.cc/posts/2\n")
+    cli = FetchImages::CLI.new(%w[queue --dry-run], input: input, output: output, error: StringIO.new)
+    assert_equal 0, cli.run
+    assert Dir.exist?(first_output)
+    assert Dir.exist?(second_output)
+  end
+
   def test_invalid_output_path_does_not_corrupt_existing_settings
     run_cli(%w[auth myfans], "session=saved\n")
     path = File.join(@dir, "fetch_images", "config.json")

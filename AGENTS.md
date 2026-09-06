@@ -12,6 +12,9 @@
 - `bin/fetch_images`: primary CLI entrypoint.
 - `lib/fetch_images/`: core library code.
   - `cli.rb`: CLI option parsing and client orchestration.
+  - `option_resolver.rb`: saved/environment/explicit option resolution and credential source precedence.
+  - `download_runner.rb`: shared download execution, client/logger lifecycle, and result validation.
+  - `reporter.rb`: result messages and normal/queue output prefixes.
   - `settings.rb`: user settings JSON validation and persistence.
   - `settings_command.rb`: `auth` / `config` command handling.
   - `download_queue.rb`: mixed-site URL input, FIFO processing, and status display.

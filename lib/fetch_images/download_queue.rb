@@ -6,28 +6,29 @@ require "thread"
 module FetchImages
   class DownloadQueue
     def initialize(input:, output:, &download)
-      @input, @output, @download = input, output, download
+      @input, @download = input, download
+      @reporter = Reporter.new(output: output)
     end
 
     def run
       jobs = Queue.new
       failed = []
       invalid = false
-      @output.puts("[INFO]   Paste post URLs, one per line. :quit / Ctrl+D finishes after queued downloads.")
+      @reporter.event(:info, "Paste post URLs, one per line. :quit / Ctrl+D finishes after queued downloads.")
       worker = Thread.new do
         while (job = jobs.pop)
           site, url = job
-          @output.puts("[START]  #{url}")
+          @reporter.event(:start, "#{url}")
           begin
             code = @download.call(site, url)
           rescue StandardError
             code = 1
           end
           if code == 0
-            @output.puts("[DONE]   #{url}")
+            @reporter.event(:done, "#{url}")
           else
             failed << url
-            @output.puts("[FAIL]   #{url} (check Cookie/access or download log)")
+            @reporter.event(:fail, "#{url} (check Cookie/access or download log)")
           end
         end
       end
@@ -39,11 +40,11 @@ module FetchImages
 
           site = site_for(url)
           if site
-            @output.puts("[QUEUE]  #{url}")
+            @reporter.event(:queue, "#{url}")
             jobs << [site, url]
           else
             invalid = true
-            @output.puts("[ERROR]  Unsupported post URL: #{url}")
+            @reporter.event(:error, "Unsupported post URL: #{url}")
           end
         end
       ensure
@@ -51,8 +52,8 @@ module FetchImages
       end
       worker.value
       unless failed.empty?
-        @output.puts("[INFO]   Failed URLs (paste the URL again to retry):")
-        failed.each { |url| @output.puts("[RETRY]  #{url}") }
+        @reporter.event(:info, "Failed URLs (paste the URL again to retry):")
+        failed.each { |url| @reporter.event(:retry, "#{url}") }
       end
       failed.empty? && !invalid ? 0 : 1
     ensure
