@@ -18,11 +18,12 @@ end
 
 require_relative "errors"
 require_relative "download_result"
+require_relative "image_urls"
 
 module FetchImages
-  IMAGE_EXTENSIONS = %w[.jpg .jpeg .png .gif .bmp .webp].freeze
-
   class Client
+    include ImageUrls
+
     USER_AGENT = "fetch-images/1.0 (+https://github.com/openai/autonomous-agents)".freeze
     OPEN_TIMEOUT = 15
     READ_TIMEOUT = 60
@@ -74,6 +75,8 @@ module FetchImages
     end
 
     private
+
+    private :collect_image_urls, :looks_like_image_url?
 
     def fetch_post_payload(_url)
       raise NotImplementedError, "subclasses must implement #fetch_post_payload"
@@ -166,28 +169,6 @@ module FetchImages
       name = "image_#{index}" if name.nil? || name.empty?
       name = sanitize_filename(name)
       format("%03d_%s", index, name)
-    end
-
-    def collect_image_urls(data, urls = Set.new)
-      case data
-      when Hash
-        data.each_value { |value| collect_image_urls(value, urls) }
-      when Array
-        data.each { |value| collect_image_urls(value, urls) }
-      when String
-        urls << data if looks_like_image_url?(data)
-      end
-      urls
-    end
-
-    def looks_like_image_url?(value)
-      uri = URI(value)
-      return false unless uri.is_a?(URI::HTTP)
-
-      ext = File.extname(CGI.unescape(uri.path.to_s)).downcase
-      IMAGE_EXTENSIONS.include?(ext)
-    rescue URI::InvalidURIError
-      false
     end
 
     def slugify(value)
