@@ -10,6 +10,7 @@ require_relative "errors"
 require_relative "download_result"
 require_relative "image_urls"
 require_relative "file_storage"
+require_relative "http_transport"
 
 module FetchImages
   class Client
@@ -24,8 +25,16 @@ module FetchImages
     def initialize(session_id: nil, credentials: nil, cookie_header: nil, logger: nil)
       @session_id = session_id
       @credentials = credentials&.dup || {}
-      @cookies = {}
       @logger = logger
+      @cookies = {}
+      @transport = HttpTransport.new(
+        cookies: @cookies,
+        logger: @logger,
+        user_agent: USER_AGENT,
+        open_timeout: OPEN_TIMEOUT,
+        read_timeout: READ_TIMEOUT,
+        on_cookies: -> { @session_id ||= @cookies[session_cookie_name] if session_cookie_name }
+      )
       apply_cookie_header(cookie_header)
     end
 
@@ -90,67 +99,25 @@ module FetchImages
     end
 
     def apply_cookies(hash)
-      @cookies.merge!(hash.compact)
+      @transport.apply_cookies(hash)
     end
 
     def apply_cookie_header(cookie_header)
-      return if cookie_header.to_s.strip.empty?
-
-      cookie_header.split(";").each do |part|
-        key, value = part.split("=", 2)
-        next if key.to_s.strip.empty? || value.nil?
-
-        @cookies[key.strip] = value.strip
-      end
-      log("Loaded cookies from cookie header: #{cookie_keys.join(', ')}")
+      @transport.apply_cookie_header(cookie_header)
     end
 
     def http_get(uri, headers: {}, params: {})
-      uri = append_query_params(URI(uri), params)
-      request = build_request(Net::HTTP::Get, uri, headers)
-
-      with_http(uri) do |http|
-        log("HTTP GET #{uri}")
-        response = http.request(request)
-        store_cookies(response)
-        log("HTTP GET #{uri} -> #{response.code}")
-        raise "HTTP request failed with status #{response.code}" unless response.is_a?(Net::HTTPSuccess)
-
-        response
-      end
+      @transport.http_get(uri, headers: headers, params: params)
     end
 
     def http_post_form(uri, form_data, headers: {})
-      uri = URI(uri)
-      request = build_request(Net::HTTP::Post, uri, headers)
-      request.set_form_data(form_data)
-
-      with_http(uri) do |http|
-        log("HTTP POST #{uri}")
-        response = http.request(request)
-        store_cookies(response)
-        log("HTTP POST #{uri} -> #{response.code}")
-        response
-      end
+      @transport.http_post_form(uri, form_data, headers: headers)
     end
 
     def download_file(url, path, referer: nil, headers: {})
-      uri = URI(url)
-      log("Downloading #{uri} -> #{path}")
-      request_headers = headers.dup
-      request_headers["Referer"] = referer if referer
-      request = build_request(Net::HTTP::Get, uri, request_headers)
-
-      with_http(uri) do |http|
-        http.request(request) do |response|
-          store_cookies(response)
-          log("Download response #{uri} -> #{response.code}")
-          unless response.is_a?(Net::HTTPSuccess)
-            raise "Failed to download #{url}: #{response.code} #{response.message}"
-          end
-
-          return save_response(path, response)
-        end
+      log("Downloading #{URI(url)} -> #{path}")
+      @transport.stream_download(url, referer: referer, headers: headers) do |response|
+        save_response(path, response)
       end
     end
 
@@ -175,55 +142,23 @@ module FetchImages
     end
 
     def build_cookie_header
-      return "" if @cookies.empty?
-
-      @cookies.map { |key, value| "#{key}=#{value}" }.join("; ")
+      @transport.build_cookie_header
     end
 
     def store_cookies(response)
-      cookies = response.get_fields("Set-Cookie")
-      return unless cookies
-
-      cookies.each do |cookie|
-        pair = cookie.split(";", 2).first
-        next unless pair
-
-        key, value = pair.split("=", 2)
-        next if key.nil?
-
-        if value.to_s.empty?
-          @cookies.delete(key)
-        else
-          @cookies[key] = value
-        end
-      end
-      cookie_name = session_cookie_name
-      @session_id ||= @cookies[cookie_name] if cookie_name
-      log("Stored cookies: #{cookie_keys.join(', ')}")
+      @transport.store_cookies(response)
     end
 
     def append_query_params(uri, params)
-      return uri if params.nil? || params.empty?
-
-      query = URI.encode_www_form(params)
-      updated_uri = uri.dup
-      updated_uri.query = [updated_uri.query, query].compact.join("&")
-      updated_uri
+      @transport.append_query_params(uri, params)
     end
 
     def build_request(request_class, uri, headers)
-      request = request_class.new(uri)
-      request["User-Agent"] = USER_AGENT
-      headers.each { |key, value| request[key] = value }
-      cookie_header = build_cookie_header
-      request["Cookie"] = cookie_header unless cookie_header.empty?
-      request
+      @transport.build_request(request_class, uri, headers)
     end
 
-    def with_http(uri)
-      Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https", open_timeout: OPEN_TIMEOUT, read_timeout: READ_TIMEOUT) do |http|
-        yield(http)
-      end
+    def with_http(uri, &block)
+      @transport.with_http(uri, &block)
     end
 
     def save_response(path, response)
@@ -251,7 +186,7 @@ module FetchImages
     end
 
     def cookie_keys
-      @cookies.keys.sort
+      @transport.cookie_keys
     end
   end
 end
