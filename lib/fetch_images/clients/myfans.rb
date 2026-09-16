@@ -1,9 +1,6 @@
 # frozen_string_literal: true
 
-require "json"
 require "nokogiri"
-require "open3"
-require "tmpdir"
 require "uri"
 require_relative "../playwright_runner"
 require_relative "../support"
@@ -121,44 +118,14 @@ module FetchImages
       end
 
       def download_hls_to_mp4(url, path, referer:, headers:)
-        ffmpeg_bin = resolve_ffmpeg_binary
-        raise "ffmpeg not found (install ffmpeg to save MyFans HLS as mp4)" unless ffmpeg_bin
-
         header_map = {
           "User-Agent" => USER_AGENT,
           "Referer" => referer,
           "Cookie" => build_cookie_header
         }.merge(headers || {})
-        header_text = header_map.each_with_object(+"") do |(key, value), memo|
-          next if value.to_s.empty?
-
-          memo << "#{key}: #{value}\r\n"
-        end
-
-        tmp_path = "#{path}.tmp.mp4"
-        command = [
-          ffmpeg_bin,
-          "-y",
-          "-loglevel", "error",
-          "-headers", header_text,
-          "-i", url,
-          "-c", "copy",
-          "-bsf:a", "aac_adtstoasc",
-          tmp_path
-        ]
-        log("MyFans ffmpeg: #{ffmpeg_bin} -i #{url} -> #{path}")
-        stdout, stderr, status = Open3.capture3(*command)
-        unless status.success?
-          message = stderr.to_s.strip
-          message = stdout.to_s.strip if message.empty?
-          message = "unknown error" if message.empty?
-          raise "ffmpeg failed: #{message}"
-        end
-
-        FileUtils.mv(tmp_path, path)
-        path
-      ensure
-        File.delete(tmp_path) if defined?(tmp_path) && tmp_path && File.exist?(tmp_path)
+        HlsDownloader.new(logger: @logger).download(
+          url, path, executable: resolve_ffmpeg_binary, headers: header_map
+        )
       end
 
       def fetch_media_urls_with_playwright(url)
@@ -211,3 +178,4 @@ module FetchImages
 end
 
 require_relative "myfans/extractor"
+require_relative "myfans/hls_downloader"
