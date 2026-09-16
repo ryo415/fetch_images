@@ -3,12 +3,12 @@
 require "json"
 require "nokogiri"
 require "uri"
-require_relative "../../image_urls"
+require_relative "../../client"
 require_relative "../../support"
 
 module FetchImages
   module Clients
-    class Fanbox
+    class Fanbox < Client
       class Extractor
         include ImageUrls
 

@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require_relative "test_helper"
+require "open3"
+require "rbconfig"
 
 class FanboxExtractorTest < Minitest::Test
   def test_image_map_filters_creator_assets
@@ -15,6 +17,53 @@ class FanboxExtractorTest < Minitest::Test
     }
 
     assert_equal [image], FetchImages::Clients::Fanbox.new.send(:extract_image_urls, payload)
+  end
+
+  def test_extract_image_urls_preserves_original_map_body_cover_precedence
+    original = "https://downloads.fanbox.cc/images/post/42/original.jpg"
+    mapped = "https://downloads.fanbox.cc/images/post/42/mapped.jpg"
+    nested = "https://downloads.fanbox.cc/images/post/42/nested.jpg"
+    cover = "https://downloads.fanbox.cc/images/post/42/cover.jpg"
+    extractor = FetchImages::Clients::Fanbox::Extractor.new
+
+    payload = {
+      "body" => {
+        "coverImageUrl" => cover,
+        "imageMap" => { "mapped" => { "originalUrl" => mapped } },
+        "body" => {
+          "images" => [{ "originalUrl" => original }],
+          "nested" => { "originalUrl" => nested }
+        }
+      }
+    }
+    assert_equal [original], extractor.extract_image_urls(payload)
+
+    payload["body"]["body"].delete("images")
+    assert_equal [mapped], extractor.extract_image_urls(payload)
+
+    payload["body"].delete("imageMap")
+    assert_equal [nested], extractor.extract_image_urls(payload)
+
+    payload["body"].delete("body")
+    assert_equal [cover], extractor.extract_image_urls(payload)
+  end
+
+  def test_extractor_can_be_required_before_client
+    script = <<~'RUBY'
+      require "fetch_images/clients/fanbox/extractor"
+      require "fetch_images/clients/fanbox"
+      abort "wrong Fanbox superclass" unless FetchImages::Clients::Fanbox.superclass == FetchImages::Client
+      abort "extractor inherited Client" if FetchImages::Clients::Fanbox::Extractor < FetchImages::Client
+    RUBY
+
+    _stdout, stderr, status = Open3.capture3(
+      RbConfig.ruby,
+      "-I#{File.expand_path('../lib', __dir__)}",
+      "-e",
+      script
+    )
+
+    assert status.success?, stderr
   end
 
   def test_metadata_parsing_handles_missing_and_invalid_json
