@@ -2,43 +2,16 @@
 
 import fs from "node:fs";
 import { chromium, firefox, webkit } from "playwright";
+import {
+  parseArgs,
+  parseCookieHeader,
+  pickBrowser,
+  withBrowser
+} from "./playwright_support.mjs";
 
 const VIDEO_EXT_RE = /\.(mp4|webm|mov|m4v|m3u8)(\?|$)/i;
 const IMAGE_EXT_RE = /\.(jpe?g|png|gif|bmp|webp|avif)(\?|$)/i;
 const MIN_POST_IMAGE_EDGE = 800;
-
-function parseArgs(argv) {
-  const args = {};
-  for (let i = 2; i < argv.length; i += 1) {
-    const key = argv[i];
-    const value = argv[i + 1];
-    if (!key.startsWith("--")) continue;
-    args[key.slice(2)] = value;
-    i += 1;
-  }
-  return args;
-}
-
-function parseCookieHeader(cookieHeader) {
-  if (!cookieHeader || !cookieHeader.trim()) return [];
-  return cookieHeader
-    .split(";")
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .map((part) => {
-      const idx = part.indexOf("=");
-      if (idx <= 0) return null;
-      return { name: part.slice(0, idx).trim(), value: part.slice(idx + 1).trim() };
-    })
-    .filter(Boolean);
-}
-
-function pickBrowser(name) {
-  const lower = String(name || "chromium").toLowerCase();
-  if (lower === "firefox") return firefox;
-  if (lower === "webkit") return webkit;
-  return chromium;
-}
 
 function likelyVideoUrl(url) {
   try {
@@ -88,9 +61,10 @@ async function main() {
   const browserName = args.browser || "chromium";
   if (!url || !output) throw new Error("Missing required args: --url --output");
 
-  const browserType = pickBrowser(browserName);
-  const browser = await browserType.launch({ headless: true });
-  const context = await browser.newContext({
+  return withBrowser(
+    pickBrowser(browserName, { chromium, firefox, webkit }),
+    async (browser) => {
+      const context = await browser.newContext({
     userAgent:
       "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 " +
       "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -196,7 +170,8 @@ async function main() {
       2
     )
   );
-  await browser.close();
+    }
+  );
 }
 
 main().catch((error) => {

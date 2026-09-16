@@ -2,39 +2,12 @@
 
 import fs from "node:fs";
 import { chromium, firefox, webkit } from "playwright";
-
-function parseArgs(argv) {
-  const args = {};
-  for (let i = 2; i < argv.length; i += 1) {
-    const key = argv[i];
-    const value = argv[i + 1];
-    if (!key.startsWith("--")) continue;
-    args[key.slice(2)] = value;
-    i += 1;
-  }
-  return args;
-}
-
-function parseCookieHeader(cookieHeader) {
-  if (!cookieHeader || !cookieHeader.trim()) return [];
-  return cookieHeader
-    .split(";")
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .map((part) => {
-      const eq = part.indexOf("=");
-      if (eq <= 0) return null;
-      return { name: part.slice(0, eq).trim(), value: part.slice(eq + 1).trim() };
-    })
-    .filter(Boolean);
-}
-
-function pickBrowser(name) {
-  const lower = String(name || "chromium").toLowerCase();
-  if (lower === "firefox") return firefox;
-  if (lower === "webkit") return webkit;
-  return chromium;
-}
+import {
+  parseArgs,
+  parseCookieHeader,
+  pickBrowser,
+  withBrowser
+} from "./playwright_support.mjs";
 
 function buildCookieTargets(url, postUrl) {
   const targets = new Set([
@@ -86,9 +59,10 @@ async function main() {
     throw new Error("Missing required args: --url --post-id --output");
   }
 
-  const browserType = pickBrowser(browserName);
-  const browser = await browserType.launch({ headless: true });
-  const context = await browser.newContext({
+  return withBrowser(
+    pickBrowser(browserName, { chromium, firefox, webkit }),
+    async (browser) => {
+      const context = await browser.newContext({
     userAgent:
       "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 " +
       "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -139,7 +113,6 @@ async function main() {
   await page.waitForTimeout(5000);
   if (capturedApiPayload) {
     fs.writeFileSync(output, JSON.stringify(capturedApiPayload));
-    await browser.close();
     return;
   }
 
@@ -178,7 +151,6 @@ async function main() {
   if (browserFetchResult.ok) {
     const data = JSON.parse(browserFetchResult.text);
     fs.writeFileSync(output, JSON.stringify(data));
-    await browser.close();
     return;
   }
 
@@ -207,7 +179,8 @@ async function main() {
 
   const data = await response.json();
   fs.writeFileSync(output, JSON.stringify(data));
-  await browser.close();
+    }
+  );
 }
 
 main().catch((error) => {
