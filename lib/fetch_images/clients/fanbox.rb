@@ -5,6 +5,7 @@ require "nokogiri"
 require "open3"
 require "tmpdir"
 require "uri"
+require_relative "../playwright_runner"
 require_relative "../support"
 
 module FetchImages
@@ -225,13 +226,9 @@ module FetchImages
           return nil
         end
 
-        output_path = File.join(Dir.tmpdir, "fanbox_post_#{post_id}_playwright.json")
-        command = [
-          "node",
-          PLAYWRIGHT_SCRIPT,
+        args = [
           "--url", url,
           "--post-id", post_id.to_s,
-          "--output", output_path,
           "--browser", @playwright_browser
         ]
         env = {}
@@ -239,22 +236,20 @@ module FetchImages
         env["FANBOX_COOKIE_HEADER"] = cookie_header unless cookie_header.empty?
 
         log("Fanbox post=#{post_id}: trying Playwright fallback (browser=#{@playwright_browser})")
-        stdout, stderr, status = Open3.capture3(env, *command)
-        log("Fanbox post=#{post_id}: Playwright stdout: #{stdout.strip}") unless stdout.to_s.strip.empty?
-        log("Fanbox post=#{post_id}: Playwright stderr: #{stderr.strip}") unless stderr.to_s.strip.empty?
-        unless status.success?
-          log("Fanbox post=#{post_id}: Playwright fallback failed with exit=#{status.exitstatus}")
-          return nil
+        status = nil
+        json = PlaywrightRunner.new.run(node: "node", script: PLAYWRIGHT_SCRIPT, args: args, env: env) do |stdout, stderr, process_status|
+          status = process_status
+          log("Fanbox post=#{post_id}: Playwright stdout: #{stdout.strip}") unless stdout.to_s.strip.empty?
+          log("Fanbox post=#{post_id}: Playwright stderr: #{stderr.strip}") unless stderr.to_s.strip.empty?
+          log("Fanbox post=#{post_id}: Playwright fallback failed with exit=#{status.exitstatus}") unless status.success?
         end
+        return nil unless status.success?
 
-        json = JSON.parse(File.read(output_path))
         log("Fanbox post=#{post_id}: Playwright payload loaded")
         json
       rescue StandardError => e
         log("Fanbox post=#{post_id}: Playwright fallback error (#{e.message})")
         nil
-      ensure
-        File.delete(output_path) if output_path && File.exist?(output_path)
       end
 
       def load_manual_post_info_payload(post_id)

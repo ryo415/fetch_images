@@ -5,6 +5,7 @@ require "nokogiri"
 require "open3"
 require "tmpdir"
 require "uri"
+require_relative "../playwright_runner"
 require_relative "../support"
 
 module FetchImages
@@ -171,12 +172,8 @@ module FetchImages
           return { videos: [], images: [] }
         end
 
-        output_path = File.join(Dir.tmpdir, "myfans_media_#{Time.now.to_i}_#{$PROCESS_ID}.json")
-        command = [
-          node_bin,
-          PLAYWRIGHT_SCRIPT,
+        args = [
           "--url", url,
-          "--output", output_path,
           "--browser", @playwright_browser
         ]
         env = {}
@@ -184,15 +181,15 @@ module FetchImages
         env["MYFANS_COOKIE_HEADER"] = cookie_header unless cookie_header.empty?
 
         log("MyFans Playwright: trying fallback (browser=#{@playwright_browser})")
-        stdout, stderr, status = Open3.capture3(env, *command)
-        log("MyFans Playwright stdout: #{stdout.strip}") unless stdout.to_s.strip.empty?
-        log("MyFans Playwright stderr: #{stderr.strip}") unless stderr.to_s.strip.empty?
-        unless status.success?
-          log("MyFans Playwright: fallback failed with exit=#{status.exitstatus}")
-          return { videos: [], images: [] }
+        status = nil
+        parsed = PlaywrightRunner.new.run(node: node_bin, script: PLAYWRIGHT_SCRIPT, args: args, env: env) do |stdout, stderr, process_status|
+          status = process_status
+          log("MyFans Playwright stdout: #{stdout.strip}") unless stdout.to_s.strip.empty?
+          log("MyFans Playwright stderr: #{stderr.strip}") unless stderr.to_s.strip.empty?
+          log("MyFans Playwright: fallback failed with exit=#{status.exitstatus}") unless status.success?
         end
+        return { videos: [], images: [] } unless status.success?
 
-        parsed = JSON.parse(File.read(output_path))
         {
           videos: Array(parsed["videos"]),
           images: Array(parsed["images"])
@@ -200,8 +197,6 @@ module FetchImages
       rescue StandardError => e
         log("MyFans Playwright: fallback error (#{e.message})")
         { videos: [], images: [] }
-      ensure
-        File.delete(output_path) if output_path && File.exist?(output_path)
       end
 
       def resolve_node_binary
