@@ -51,6 +51,7 @@ module FetchImages
       request = build_request(Net::HTTP::Get, uri, request_headers)
 
       with_http(uri) do |http|
+        block_result = nil
         http.request(request) do |response|
           store_cookies(response)
           log("Download response #{uri} -> #{response.code}")
@@ -58,8 +59,9 @@ module FetchImages
             raise "Failed to download #{url}: #{response.code} #{response.message}"
           end
 
-          yield(response)
+          block_result = yield(response)
         end
+        block_result
       end
     end
 

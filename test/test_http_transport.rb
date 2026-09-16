@@ -44,6 +44,7 @@ class HttpTransportTest < Minitest::Test
     http.define_singleton_method(:request) do |request, &block|
       seen << request
       block.call(response)
+      response
     end
     connection = lambda do |_uri, &block|
       active = true
@@ -136,7 +137,8 @@ class HttpTransportTest < Minitest::Test
     http = Object.new
     http.define_singleton_method(:request) do |request, &block|
       seen << request
-      block ? block.call(response) : response
+      block.call(response) if block
+      response
     end
     connection = ->(_uri, &block) { block.call(http) }
     transport = FetchImages::HttpTransport.new(
@@ -205,33 +207,38 @@ class ClientHttpDelegationTest < Minitest::Test
     assert_equal 1, client.authentication_count
   end
 
-  def test_download_file_passes_streaming_response_to_storage_delegate
-    response = Object.new
-    transport = Object.new
-    transport.define_singleton_method(:stream_download) do |url, referer:, headers:, &block|
-      raise "wrong URL" unless url == "https://cdn.example.test/image"
-      raise "wrong referer" unless referer == "https://example.test/post"
-      raise "wrong headers" unless headers == { "Accept" => "image/*" }
-
+  def test_download_file_returns_path_saved_by_real_storage
+    response = Net::HTTPOK.new("1.1", "200", "OK")
+    response.add_field("Content-Type", "image/jpeg")
+    response.define_singleton_method(:read_body) { |&block| block.call("image bytes") }
+    http = Object.new
+    http.define_singleton_method(:request) do |_request, &block|
       block.call(response)
+      response
     end
+    connection = ->(_uri, &block) { block.call(http) }
+    transport = FetchImages::HttpTransport.new(
+      cookies: {},
+      user_agent: "test-agent",
+      open_timeout: 15,
+      read_timeout: 60,
+      connection: connection
+    )
     client = FetchImages::Client.new
     client.instance_variable_set(:@transport, transport)
-    client.define_singleton_method(:save_response) do |path, yielded_response|
-      raise "wrong response" unless yielded_response.equal?(response)
 
-      "#{path}.jpg"
+    Dir.mktmpdir do |dir|
+      result = client.send(
+        :download_file,
+        "https://cdn.example.test/image",
+        File.join(dir, "image"),
+        referer: "https://example.test/post",
+        headers: { "Accept" => "image/*" }
+      )
+
+      assert_equal File.join(dir, "image.jpg"), result
+      assert_equal "image bytes", File.binread(result)
     end
-
-    result = client.send(
-      :download_file,
-      "https://cdn.example.test/image",
-      "/tmp/image",
-      referer: "https://example.test/post",
-      headers: { "Accept" => "image/*" }
-    )
-
-    assert_equal "/tmp/image.jpg", result
   end
 end
 
