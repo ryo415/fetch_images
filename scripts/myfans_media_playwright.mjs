@@ -65,111 +65,111 @@ async function main() {
     pickBrowser(browserName, { chromium, firefox, webkit }),
     async (browser) => {
       const context = await browser.newContext({
-    userAgent:
-      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 " +
-      "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    locale: "ja-JP"
-  });
+        userAgent:
+          "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 " +
+          "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        locale: "ja-JP"
+      });
 
-  const cookieHeader = process.env.MYFANS_COOKIE_HEADER || "";
-  const cookies = parseCookieHeader(cookieHeader);
-  if (cookies.length > 0) {
-    const origin = new URL(url).origin;
-    await context.addCookies(
-      cookies.map((cookie) => ({
-        name: cookie.name,
-        value: cookie.value,
-        url: origin
-      }))
-    );
-  }
-
-  const videos = new Set();
-  const images = new Set();
-  const page = await context.newPage();
-
-  const collect = (candidate) => {
-    if (!candidate || typeof candidate !== "string") return;
-    if (likelyVideoUrl(candidate)) {
-      videos.add(candidate);
-    } else if (likelyImageUrl(candidate)) {
-      images.add(candidate);
-    }
-  };
-
-  const collectFromJson = (value) => {
-    if (typeof value === "string") {
-      collect(value);
-      return;
-    }
-    if (Array.isArray(value)) {
-      for (const item of value) collectFromJson(item);
-      return;
-    }
-    if (value && typeof value === "object") {
-      for (const v of Object.values(value)) collectFromJson(v);
-    }
-  };
-
-  page.on("request", (req) => {
-    const requestUrl = req.url();
-    if (likelyVideoUrl(requestUrl)) collect(requestUrl);
-  });
-  page.on("response", async (res) => {
-    const responseUrl = res.url();
-    if (likelyVideoUrl(responseUrl)) collect(responseUrl);
-    if (!likelyPostApiResponse(responseUrl)) return;
-    if (!res.ok()) return;
-    try {
-      const data = await res.json();
-      collectFromJson(data);
-    } catch {
-      // ignore JSON parse errors
-    }
-  });
-
-  await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
-  await page.waitForTimeout(8000);
-
-  const domMedia = await page.evaluate((minPostImageEdge) => {
-    const out = [];
-    const roots = [...document.querySelectorAll("article, main, [class*='post'], [class*='content']")];
-    const scope = roots.length > 0 ? roots : [document.body];
-    const nodes = new Set(scope.flatMap((root) => [...root.querySelectorAll("video, source, img")]));
-    for (const node of nodes) {
-      if (node.tagName.toLowerCase() === "img") {
-        const width = node.naturalWidth || node.width || 0;
-        const height = node.naturalHeight || node.height || 0;
-        if (Math.max(width, height) < minPostImageEdge) continue;
+      const cookieHeader = process.env.MYFANS_COOKIE_HEADER || "";
+      const cookies = parseCookieHeader(cookieHeader);
+      if (cookies.length > 0) {
+        const origin = new URL(url).origin;
+        await context.addCookies(
+          cookies.map((cookie) => ({
+            name: cookie.name,
+            value: cookie.value,
+            url: origin
+          }))
+        );
       }
-      for (const attr of ["src", "data-src", "data-video-src", "data-original", "data-lazy-src"]) {
-        const v = node.getAttribute(attr);
-        if (v) out.push(v);
-      }
-      for (const attr of ["srcset", "data-srcset"]) {
-        const srcset = node.getAttribute(attr);
-        if (!srcset) continue;
-        for (const entry of srcset.split(",")) {
-          const first = entry.trim().split(/\s+/, 2)[0];
-          if (first) out.push(first);
+
+      const videos = new Set();
+      const images = new Set();
+      const page = await context.newPage();
+
+      const collect = (candidate) => {
+        if (!candidate || typeof candidate !== "string") return;
+        if (likelyVideoUrl(candidate)) {
+          videos.add(candidate);
+        } else if (likelyImageUrl(candidate)) {
+          images.add(candidate);
         }
-      }
-    }
-    return out;
-  }, MIN_POST_IMAGE_EDGE);
-  domMedia.forEach((u) => collect(new URL(u, url).toString()));
+      };
 
-  fs.writeFileSync(
-    output,
-    JSON.stringify(
-      {
-        videos: [...videos],
-        images: [...images]
-      },
-      null,
-      2
-    )
-  );
+      const collectFromJson = (value) => {
+        if (typeof value === "string") {
+          collect(value);
+          return;
+        }
+        if (Array.isArray(value)) {
+          for (const item of value) collectFromJson(item);
+          return;
+        }
+        if (value && typeof value === "object") {
+          for (const v of Object.values(value)) collectFromJson(v);
+        }
+      };
+
+      page.on("request", (req) => {
+        const requestUrl = req.url();
+        if (likelyVideoUrl(requestUrl)) collect(requestUrl);
+      });
+      page.on("response", async (res) => {
+        const responseUrl = res.url();
+        if (likelyVideoUrl(responseUrl)) collect(responseUrl);
+        if (!likelyPostApiResponse(responseUrl)) return;
+        if (!res.ok()) return;
+        try {
+          const data = await res.json();
+          collectFromJson(data);
+        } catch {
+          // ignore JSON parse errors
+        }
+      });
+
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
+      await page.waitForTimeout(8000);
+
+      const domMedia = await page.evaluate((minPostImageEdge) => {
+        const out = [];
+        const roots = [...document.querySelectorAll("article, main, [class*='post'], [class*='content']")];
+        const scope = roots.length > 0 ? roots : [document.body];
+        const nodes = new Set(scope.flatMap((root) => [...root.querySelectorAll("video, source, img")]));
+        for (const node of nodes) {
+          if (node.tagName.toLowerCase() === "img") {
+            const width = node.naturalWidth || node.width || 0;
+            const height = node.naturalHeight || node.height || 0;
+            if (Math.max(width, height) < minPostImageEdge) continue;
+          }
+          for (const attr of ["src", "data-src", "data-video-src", "data-original", "data-lazy-src"]) {
+            const v = node.getAttribute(attr);
+            if (v) out.push(v);
+          }
+          for (const attr of ["srcset", "data-srcset"]) {
+            const srcset = node.getAttribute(attr);
+            if (!srcset) continue;
+            for (const entry of srcset.split(",")) {
+              const first = entry.trim().split(/\s+/, 2)[0];
+              if (first) out.push(first);
+            }
+          }
+        }
+        return out;
+      }, MIN_POST_IMAGE_EDGE);
+      domMedia.forEach((u) => collect(new URL(u, url).toString()));
+
+      fs.writeFileSync(
+        output,
+        JSON.stringify(
+          {
+            videos: [...videos],
+            images: [...images]
+          },
+          null,
+          2
+        )
+      );
     }
   );
 }

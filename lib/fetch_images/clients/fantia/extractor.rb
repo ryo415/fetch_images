@@ -1,10 +1,16 @@
 # frozen_string_literal: true
 
+require "json"
+require "nokogiri"
+require "set"
+require "uri"
+require_relative "../../client"
+require_relative "../../image_urls"
 require_relative "../../support"
 
 module FetchImages
   module Clients
-    class Fantia
+    class Fantia < Client
       class Extractor
         include ImageUrls
 

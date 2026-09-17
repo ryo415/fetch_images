@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require_relative "test_helper"
+require "open3"
+require "rbconfig"
 
 class FantiaExtractorTest < Minitest::Test
   def setup
@@ -42,6 +44,36 @@ class FantiaExtractorTest < Minitest::Test
       '<meta property="og:title" content="日本語の投稿">'
     )
     assert_nil extractor.extract_authenticity_token("<html></html>")
+  end
+
+  def test_extractor_parses_before_requiring_client_and_full_library
+    script = <<~'RUBY'
+      require "fetch_images/clients/fantia/extractor"
+      extractor = FetchImages::Clients::Fantia::Extractor.new
+      html = <<~HTML
+        <meta property="og:title" content="Standalone post">
+        <script type="application/json">
+          {"id":42,"post_contents":[{"images":["https://c.fantia.jp/uploads/post_content_photo/file/42/main_a.jpg"]}]}
+        </script>
+      HTML
+      urls = extractor.extract_image_urls_from_html(html, "https://fantia.jp/posts/42", post_id: "42")
+      abort "embedded JSON extraction failed" unless urls == ["https://c.fantia.jp/uploads/post_content_photo/file/42/main_a.jpg"]
+      abort "HTML title extraction failed" unless extractor.extract_page_title(html) == "Standalone post"
+
+      require "fetch_images/clients/fantia"
+      require "fetch_images"
+      abort "wrong Fantia superclass" unless FetchImages::Clients::Fantia.superclass == FetchImages::Client
+      abort "extractor inherited Client" if FetchImages::Clients::Fantia::Extractor < FetchImages::Client
+    RUBY
+
+    _stdout, stderr, status = Open3.capture3(
+      RbConfig.ruby,
+      "-I#{File.expand_path('../lib', __dir__)}",
+      "-e",
+      script
+    )
+
+    assert status.success?, stderr
   end
 
   def test_image_urls_collects_only_http_images_recursively

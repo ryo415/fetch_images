@@ -63,122 +63,122 @@ async function main() {
     pickBrowser(browserName, { chromium, firefox, webkit }),
     async (browser) => {
       const context = await browser.newContext({
-    userAgent:
-      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 " +
-      "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    locale: "ja-JP"
-  });
+        userAgent:
+          "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 " +
+          "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        locale: "ja-JP"
+      });
 
-  const cookieHeader = process.env.FANBOX_COOKIE_HEADER || "";
-  const cookies = parseCookieHeader(cookieHeader);
-  if (cookies.length > 0) {
-    const targets = buildCookieTargets(url, `https://www.fanbox.cc/`);
-    const playwrightCookies = [];
-    for (const target of targets) {
-      for (const cookie of cookies) {
-        playwrightCookies.push({
-          name: cookie.name,
-          value: cookie.value,
-          url: target
-        });
-      }
-    }
-    await context.addCookies(playwrightCookies);
-  }
-
-  const page = await context.newPage();
-  const parsed = extractCreatorAndPostId(url, postId);
-  const canonicalUrl = parsed.creator
-    ? `https://www.fanbox.cc/@${parsed.creator}/posts/${parsed.postId}`
-    : url;
-
-  let capturedApiPayload = null;
-  let capturedApiStatus = null;
-  let capturedApiBody = "";
-  page.on("response", async (response) => {
-    try {
-      const responseUrl = response.url();
-      if (!responseUrl.includes("api.fanbox.cc/post.info")) return;
-      capturedApiStatus = response.status();
-      const text = await response.text();
-      capturedApiBody = text.slice(0, 500);
-      if (!response.ok()) return;
-      capturedApiPayload = JSON.parse(text);
-    } catch {
-      // ignore
-    }
-  });
-
-  await page.goto(canonicalUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
-  await page.waitForTimeout(5000);
-  if (capturedApiPayload) {
-    fs.writeFileSync(output, JSON.stringify(capturedApiPayload));
-    return;
-  }
-
-  let browserFetchResult = { ok: false, status: 0, text: "", error: "" };
-  try {
-    browserFetchResult = await page.evaluate(async ({ postId }) => {
-      const metaRaw = document.querySelector("meta#metadata")?.getAttribute("content") || "";
-      let csrfToken = "";
-      try {
-        const parsed = JSON.parse(metaRaw);
-        csrfToken = parsed?.csrfToken || "";
-      } catch {
-        csrfToken = "";
-      }
-
-      try {
-        const response = await fetch(`https://api.fanbox.cc/post.info?postId=${postId}`, {
-          method: "GET",
-          credentials: "include",
-          headers: {
-            Accept: "application/json, text/plain, */*",
-            "X-Requested-With": "XMLHttpRequest",
-            ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {})
+      const cookieHeader = process.env.FANBOX_COOKIE_HEADER || "";
+      const cookies = parseCookieHeader(cookieHeader);
+      if (cookies.length > 0) {
+        const targets = buildCookieTargets(url, `https://www.fanbox.cc/`);
+        const playwrightCookies = [];
+        for (const target of targets) {
+          for (const cookie of cookies) {
+            playwrightCookies.push({
+              name: cookie.name,
+              value: cookie.value,
+              url: target
+            });
           }
-        });
-        const text = await response.text();
-        return { ok: response.ok, status: response.status, text, error: "" };
-      } catch (error) {
-        return { ok: false, status: 0, text: "", error: String(error) };
+        }
+        await context.addCookies(playwrightCookies);
       }
-    }, { postId });
-  } catch (error) {
-    browserFetchResult = { ok: false, status: 0, text: "", error: String(error) };
-  }
 
-  if (browserFetchResult.ok) {
-    const data = JSON.parse(browserFetchResult.text);
-    fs.writeFileSync(output, JSON.stringify(data));
-    return;
-  }
+      const page = await context.newPage();
+      const parsed = extractCreatorAndPostId(url, postId);
+      const canonicalUrl = parsed.creator
+        ? `https://www.fanbox.cc/@${parsed.creator}/posts/${parsed.postId}`
+        : url;
 
-  // Fallback: Playwright APIRequestContext direct call.
-  const apiUrl = `https://api.fanbox.cc/post.info?postId=${postId}`;
-  const response = await page.request.get(apiUrl, {
-    headers: {
-      Accept: "application/json, text/plain, */*",
-      Referer: url,
-      Origin: new URL(url).origin,
-      "X-Requested-With": "XMLHttpRequest"
-    },
-    timeout: 30000
-  });
+      let capturedApiPayload = null;
+      let capturedApiStatus = null;
+      let capturedApiBody = "";
+      page.on("response", async (response) => {
+        try {
+          const responseUrl = response.url();
+          if (!responseUrl.includes("api.fanbox.cc/post.info")) return;
+          capturedApiStatus = response.status();
+          const text = await response.text();
+          capturedApiBody = text.slice(0, 500);
+          if (!response.ok()) return;
+          capturedApiPayload = JSON.parse(text);
+        } catch {
+          // ignore
+        }
+      });
 
-  if (!response.ok()) {
-    const browserBody = (browserFetchResult.text || "").slice(0, 300);
-    const body = (await response.text()).slice(0, 300);
-    throw new Error(
-      `Playwright API failed: ` +
-      `capturedApiStatus=${capturedApiStatus || "none"} capturedApiBody=${capturedApiBody} | ` +
-      `browserFetch=${browserFetchResult.status} ${browserBody} browserFetchError=${browserFetchResult.error} | ` +
-      `requestContext=${response.status()} ${body}`
-    );
-  }
+      await page.goto(canonicalUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
+      await page.waitForTimeout(5000);
+      if (capturedApiPayload) {
+        fs.writeFileSync(output, JSON.stringify(capturedApiPayload));
+        return;
+      }
 
-  const data = await response.json();
-  fs.writeFileSync(output, JSON.stringify(data));
+      let browserFetchResult = { ok: false, status: 0, text: "", error: "" };
+      try {
+        browserFetchResult = await page.evaluate(async ({ postId }) => {
+          const metaRaw = document.querySelector("meta#metadata")?.getAttribute("content") || "";
+          let csrfToken = "";
+          try {
+            const parsed = JSON.parse(metaRaw);
+            csrfToken = parsed?.csrfToken || "";
+          } catch {
+            csrfToken = "";
+          }
+
+          try {
+            const response = await fetch(`https://api.fanbox.cc/post.info?postId=${postId}`, {
+              method: "GET",
+              credentials: "include",
+              headers: {
+                Accept: "application/json, text/plain, */*",
+                "X-Requested-With": "XMLHttpRequest",
+                ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {})
+              }
+            });
+            const text = await response.text();
+            return { ok: response.ok, status: response.status, text, error: "" };
+          } catch (error) {
+            return { ok: false, status: 0, text: "", error: String(error) };
+          }
+        }, { postId });
+      } catch (error) {
+        browserFetchResult = { ok: false, status: 0, text: "", error: String(error) };
+      }
+
+      if (browserFetchResult.ok) {
+        const data = JSON.parse(browserFetchResult.text);
+        fs.writeFileSync(output, JSON.stringify(data));
+        return;
+      }
+
+      // Fallback: Playwright APIRequestContext direct call.
+      const apiUrl = `https://api.fanbox.cc/post.info?postId=${postId}`;
+      const response = await page.request.get(apiUrl, {
+        headers: {
+          Accept: "application/json, text/plain, */*",
+          Referer: url,
+          Origin: new URL(url).origin,
+          "X-Requested-With": "XMLHttpRequest"
+        },
+        timeout: 30000
+      });
+
+      if (!response.ok()) {
+        const browserBody = (browserFetchResult.text || "").slice(0, 300);
+        const body = (await response.text()).slice(0, 300);
+        throw new Error(
+          `Playwright API failed: ` +
+          `capturedApiStatus=${capturedApiStatus || "none"} capturedApiBody=${capturedApiBody} | ` +
+          `browserFetch=${browserFetchResult.status} ${browserBody} browserFetchError=${browserFetchResult.error} | ` +
+          `requestContext=${response.status()} ${body}`
+        );
+      }
+
+      const data = await response.json();
+      fs.writeFileSync(output, JSON.stringify(data));
     }
   );
 }
