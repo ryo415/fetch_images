@@ -20,7 +20,7 @@
   - `download_queue.rb`: mixed-site URL input, FIFO processing, and status display.
   - `client.rb`: common client entrypoint and download orchestration.
   - `http_transport.rb`: HTTP requests, cookie handling, and streaming responses.
-  - `file_storage.rb`: filename/directory sanitisation, extension resolution, and atomic response saving.
+  - `file_storage.rb`: filename/directory sanitisation, extension resolution, and temporary-file response saving.
   - `image_urls.rb`: shared image URL collection and validation.
   - `playwright_runner.rb`: external browser-helper invocation and JSON result loading.
   - `site_definitions.rb`: service command metadata, option definitions, client construction, and validation.
