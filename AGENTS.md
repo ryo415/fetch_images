@@ -18,14 +18,23 @@
   - `settings.rb`: user settings JSON validation and persistence.
   - `settings_command.rb`: `auth` / `config` command handling.
   - `download_queue.rb`: mixed-site URL input, FIFO processing, and status display.
-  - `client.rb`: shared HTTP/download behavior.
-  - `logger.rb`, `support.rb`: shared logging and utility helpers.
-  - `clients/fantia.rb`, `clients/fanbox.rb`, `clients/myfans.rb`: platform-specific implementations.
+  - `client.rb`: common client entrypoint and download orchestration.
+  - `http_transport.rb`: HTTP requests, cookie handling, and streaming responses.
+  - `file_storage.rb`: filename/directory sanitisation, extension resolution, and atomic response saving.
+  - `image_urls.rb`: shared image URL collection and validation.
+  - `playwright_runner.rb`: external browser-helper invocation and JSON result loading.
+  - `site_definitions.rb`: service command metadata, option definitions, client construction, and validation.
+  - `logger.rb`, `support.rb`: shared logging and string/URL utility helpers.
+  - `clients/fantia.rb`, `clients/fanbox.rb`, `clients/myfans.rb`: site request flow and download policy.
+  - `clients/<site>/extractor.rb`: site-specific payload and HTML media extraction.
+  - `clients/myfans/hls_downloader.rb`: ffmpeg-backed HLS-to-mp4 download.
   - `errors.rb`, `download_result.rb`, `version.rb`: shared models and constants.
 - `lib/fantia/` and `fantia_fetcher.rb`: legacy Fantia-only flow (kept for backward compatibility).
-- `scripts/`: Playwright helper scripts used as browser-based fallbacks for FANBOX/MyFans extraction.
+- `scripts/`: Playwright browser fallbacks and `playwright_support.mjs`, their shared argument, cookie, browser-selection, and lifecycle helpers.
 - `package.json`: Node/Playwright dependency manifest for the helper scripts.
 - `test/test_workflow.rb`: Minitest coverage for settings, credential precedence, and queue behavior.
+- `test/test_*.rb`: offline Minitest coverage for extraction, HTTP transport, file storage, external-process runners, and client download behavior.
+- `test/*.test.mjs`: Node tests for Playwright helper common processing; they do not launch a browser.
 - `downloads/`: default output directory for downloaded files.
 - Bundler's local install path is configurable. Older documentation used `vender/bundle`; the current local configuration uses `vendor/bundle`. Check `bundle config get path` rather than assuming either or changing existing settings.
 
@@ -34,6 +43,8 @@
 - `bundle install`: install Ruby dependencies using existing Bundler configuration.
 - `npm install` and `npx playwright install chromium`: install Playwright and the selected browser when working on browser fallback scripts.
 - `bundle exec ruby test/test_workflow.rb`: run the offline workflow tests.
+- `bundle exec ruby -Itest -e 'Dir["test/test_*.rb"].sort.each { |file| require_relative file }'`: run all offline Ruby tests.
+- `node --test test/*.test.mjs`: run Node tests for browser-helper common processing without launching a browser.
 - `bundle exec bin/fetch_images --help`: verify CLI boots and list options.
 - `bundle exec bin/fetch_images <fantia|fanbox> --dry-run <POST_URL>`: verify extraction with suitable authentication. The service subcommand is required; dry-run still fetches post data and creates the output root.
 - `ruby -c bin/fetch_images` and `ruby -c lib/fetch_images/clients/fantia.rb`: quick syntax checks.
@@ -47,7 +58,7 @@
   - Classes/modules: `CamelCase` (e.g., `FetchImages::Clients::Fanbox`).
   - Files: `snake_case.rb` matching class responsibility.
 - Methods/variables: `snake_case`.
-- Keep platform-specific logic inside `lib/fetch_images/clients/`; place shared logic in `Client`.
+- Keep platform-specific logic inside `lib/fetch_images/clients/`. Use `Client` as the common entrypoint; place HTTP, saving, image URL checks, and external execution in classes/modules responsible for each concern.
 - Keep Playwright/browser automation logic inside `scripts/`; do not embed it directly into the Ruby clients.
 
 ## Testing Guidelines

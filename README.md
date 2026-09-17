@@ -333,8 +333,8 @@ FANBOXの手動JSONは指定URLの投稿IDとの照合を行わないため、�
 
 ```bash
 bundle exec ruby test/test_workflow.rb
+bundle exec ruby -Itest -e 'Dir["test/test_*.rb"].sort.each { |file| require_relative file }'
+node --test test/*.test.mjs
 ```
 
-一時ディレクトリ・ダミーCookie・手動FANBOX JSONを使用し、実サービスへの通信なしで
-設定の保存、優先順位、キューの受付・終了・失敗処理を確認します。
-実サービスの現在のHTML/APIへの対応や実ダウンロードは、このテストでは検証しません。
+`test/test_workflow.rb` は設定・キューのワークフローを単体で確認します。Rubyテストは設定・キューに加え、ダミーHTML/JSONによる抽出、偽HTTP応答による保存、偽プロセスによる外部コマンド処理を検証します。Nodeテストはブラウザ補助の共通処理を検証し、ブラウザを起動しません。実サービスのHTML/APIへの対応と実ダウンロードは別途確認が必要です。
