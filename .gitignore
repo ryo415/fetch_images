@@ -2,3 +2,7 @@
 /vender/bundle/ruby
 /downloads
 /.env
+/vendor/
+/docs/
+/test-results/
+*.log

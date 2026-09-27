@@ -35,6 +35,7 @@
 - `test/test_workflow.rb`: Minitest coverage for settings, credential precedence, and queue behavior.
 - `test/test_*.rb`: offline Minitest coverage for extraction, HTTP transport, file storage, external-process runners, and client download behavior.
 - `test/*.test.mjs`: Node tests for Playwright helper common processing; they do not launch a browser.
+- `docs/`: future design proposals and implementation specifications.
 - `downloads/`: default output directory for downloaded files.
 - Bundler's local install path is configurable. Older documentation used `vender/bundle`; the current local configuration uses `vendor/bundle`. Check `bundle config get path` rather than assuming either or changing existing settings.
 
