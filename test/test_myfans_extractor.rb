@@ -89,13 +89,16 @@ class MyfansExtractorTest < Minitest::Test
     assert_equal({ videos: [], images: [] }, result)
   end
 
-  def test_raw_video_candidate_suppresses_playwright_even_if_filtered_out
+  def test_filtered_raw_video_candidate_uses_playwright_video
     payload = { "url" => "https://myfans.jp/posts/42", "html" =>
       '<video src="https://myfans.jp/api/v1/posts/42/videos"></video>' }
     client = client_with_payload(FetchImages::Clients::Myfans, payload, playwright: true)
-    client.define_singleton_method(:fetch_media_urls_with_playwright) { |_| raise "must not run" }
+    client.define_singleton_method(:fetch_media_urls_with_playwright) do |_|
+      { videos: ["https://media.example.test/browser.m3u8"], images: [] }
+    end
 
-    assert_empty client.download_images(payload["url"], "/unused", dry_run: true).planned
+    assert_equal ["https://media.example.test/browser.m3u8"],
+                 client.download_images(payload["url"], "/unused", dry_run: true).planned
   end
 
   def test_invalid_url_returns_before_playwright
