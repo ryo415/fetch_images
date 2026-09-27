@@ -44,11 +44,13 @@ bundle exec bin/fetch_images <subcommand> [options] <POST_URL> [<POST_URL> ...]
 | --- | --- |
 | `auth <site>` | Cookieの登録・更新・削除 |
 | `config <site>` | 保存先・Playwright設定の保存と確認 |
+| `quickstart` | 画像・動画取得までの最短手順を表示 |
 | `queue` | 標準入力からサイト混在の投稿URLを受付 |
 | `fantia` / `fanbox` / `myfans` | 指定サイトの投稿URLを1件以上処理 |
 
 `<site>` は `fantia` / `fanbox` / `myfans` です。
 サイト別コマンドはサブコマンドとURLのサービスが一致しない場合にエラーになります。
+最短の操作例だけを確認する場合は `bundle exec bin/fetch_images quickstart` を実行してください。
 
 ### Cookieを保存してURLを続けて投入する
 

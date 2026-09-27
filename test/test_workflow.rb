@@ -41,6 +41,18 @@ class WorkflowTest < Minitest::Test
     [code, out.string, err.string]
   end
 
+  def test_quickstart_prints_the_shortest_download_flow
+    code, out, err = run_cli(%w[quickstart])
+
+    assert_equal 0, code
+    assert_empty err
+    assert_includes out, "auth <site>"
+    assert_includes out, "config <site> --output ./downloads"
+    assert_includes out, "Add --playwright for fanbox/myfans when needed; it is unavailable for fantia."
+    assert_includes out, "queue"
+    assert_includes out, "fantia, fanbox, myfans"
+  end
+
   def test_register_cookie_without_echo_and_retain_site_settings
     assert_equal 0, run_cli(%w[config myfans --output ./pictures --playwright])[0]
     code, out, err = run_cli(%w[auth myfans], "Cookie: myfans_session=private-value; foo=bar\n")
