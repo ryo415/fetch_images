@@ -25,6 +25,7 @@ module FetchImages
       if %w[auth config].include?(@argv.first)
         return SettingsCommand.new(@argv.shift, @argv, input: @input, output: @output).run
       end
+      return run_quickstart if @argv.first == "quickstart"
       return run_queue if @argv.first == "queue"
 
       extract_subcommand!
@@ -65,6 +66,23 @@ module FetchImages
 
     def warn(message)
       @reporter.warning(message)
+    end
+
+    def run_quickstart
+      @argv.shift
+      raise ValidationError, "quickstart does not accept arguments" unless @argv.empty?
+
+      puts <<~GUIDE
+        Quick start:
+          1. bundle exec bin/fetch_images auth <site>
+          2. bundle exec bin/fetch_images config <site> --output ./downloads
+             Add --playwright for fanbox/myfans when needed; it is unavailable for fantia.
+          3. bundle exec bin/fetch_images queue
+             Then paste post URLs, one per line.
+
+        Sites: fantia, fanbox, myfans
+      GUIDE
+      0
     end
 
     def run_queue
@@ -123,11 +141,12 @@ module FetchImages
           Subcommands:
         BANNER
         COMMANDS.each do |name, config|
-          opts.separator format("  %-8s %s", name, config.fetch(:description))
+          opts.separator format("  %-10s %s", name, config.fetch(:description))
         end
-        opts.separator "  auth     Register/update Cookie (auth <site> [--clear])"
-        opts.separator "  config   Save site defaults (config <site> --help)"
-        opts.separator "  queue    Accept mixed-site post URLs until :quit / EOF"
+        opts.separator "  auth       Register/update Cookie (auth <site> [--clear])"
+        opts.separator "  config     Save site defaults (config <site> --help)"
+        opts.separator "  quickstart Show the shortest download flow"
+        opts.separator "  queue      Accept mixed-site post URLs until :quit / EOF"
         opts.on("-h", "--help", "Show this help message") { puts opts; exit }
       end
     end
