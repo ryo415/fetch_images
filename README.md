@@ -82,6 +82,7 @@ bundle exec bin/fetch_images queue
 
 - サイトをURLから自動判別します。Fantia・FANBOX・MyFansを混在させられます。
 - 複数行のまとめ貼りに対応し、ダウンロード中も次のURLを受け付けます。取得は投入順に1件ずつ行います。
+- 端末でURLを入力している途中に状態ログが出ても、編集中の文字列を次の行へ再表示します。
 - ログは `[QUEUE]`（受付）、`[START]`（開始）、`[RESULT]`（取得件数）、`[DONE]`（完了）、`[FAIL]`（失敗）を行頭に付け、入力したURLと区別します。
 - MyFansは `/posts/<id>` または `/<creator>/posts/<id>` 形式を受け付けます。
 - `:quit` またはCtrl+Dで受付を終了し、投入済みURLの処理が終わるまで待ちます。

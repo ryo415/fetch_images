@@ -100,16 +100,20 @@ module FetchImages
       end
       raise ValidationError, "queue reads URLs from standard input; do not pass URL arguments" unless remaining.empty?
 
-      DownloadQueue.new(input: @input, output: @output) do |site, url|
-        run_queued_download(site, url)
+      DownloadQueue.new(input: @input, output: @output) do |site, url, interactive_output|
+        run_queued_download(site, url, interactive_output: interactive_output)
       end.run
     rescue Interrupt
       warn "[INFO]   Queue interrupted. Unfinished URLs must be added again."
       130
     end
 
-    def run_queued_download(site, url)
-      reporter = Reporter.new(output: @output, error: @error, prefixed: true)
+    def run_queued_download(site, url, interactive_output: nil)
+      reporter = Reporter.new(
+        output: interactive_output || @output,
+        error: interactive_output || @error,
+        prefixed: true
+      )
       options = OptionResolver.new(site: site, commands: COMMANDS)
       parser = build_subcommand_parser(site)
       @explicit_options.each { |key, value| options.set_option(key, value) }
