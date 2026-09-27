@@ -79,11 +79,14 @@ module FetchImages
         url = payload["url"].to_s
         URI.parse(url)
         candidates = extractor.collect(payload)
-        fallback = if candidates[:videos].empty? && @playwright
+        selected = extractor.select(candidates)
+        fallback = if selected[:videos].empty? && @playwright
                      fetch_media_urls_with_playwright(url)
                    else
                      { videos: [], images: [] }
                    end
+        return selected if fallback[:videos].empty? && fallback[:images].empty?
+
         extractor.select(candidates, fallback: fallback)
       rescue URI::InvalidURIError
         { videos: [], images: [] }
