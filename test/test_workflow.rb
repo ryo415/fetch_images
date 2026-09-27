@@ -254,6 +254,51 @@ class WorkflowTest < Minitest::Test
     reader&.close
   end
 
+  def test_queue_redraws_partial_interactive_input_after_worker_output
+    output = StringIO.new
+    editor = Class.new do
+      def initialize(output)
+        @output = output
+        @lines = ["https://fantia.jp/posts/1", nil]
+        @reading = Queue.new
+        @release = Queue.new
+      end
+
+      attr_reader :reading, :release
+
+      def readline
+        line = @lines.shift
+        if line.nil?
+          @output.write("https://myfans.jp/pos")
+          @reading << true
+          @release.pop
+        end
+        line
+      end
+
+      def redisplay
+        @output.write("https://myfans.jp/pos")
+      end
+    end.new(output)
+
+    queue = FetchImages::DownloadQueue.new(
+      input: StringIO.new,
+      output: output,
+      interactive: true,
+      line_editor: editor
+    ) do |_site, _url, queue_output|
+      Timeout.timeout(3) { editor.reading.pop }
+      queue_output.puts("[RESULT] Downloaded while typing")
+      0
+    ensure
+      editor.release << true
+    end
+
+    assert_equal 0, Timeout.timeout(3) { queue.run }
+    assert_match(/\[RESULT\].*\nhttps:\/\/myfans\.jp\/pos/m, output.string)
+    assert_match(/\[DONE\].*\nhttps:\/\/myfans\.jp\/pos\z/m, output.string)
+  end
+
   def test_queue_rejects_other_hosts_and_profile_urls
     visited = []
     queue = FetchImages::DownloadQueue.new(input: StringIO.new("https://evil.test/https://fantia.jp/posts/1\nhttps://myfans.jp/profile\n"), output: StringIO.new) do |site, url|

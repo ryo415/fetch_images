@@ -2,12 +2,52 @@
 
 require "uri"
 require "thread"
+require "reline"
 
 module FetchImages
   class DownloadQueue
-    def initialize(input:, output:, &download)
+    class LineEditor
+      def readline
+        Reline.readline("", false)
+      end
+
+      def redisplay
+        editor = Reline.line_editor
+        editor.send(:clear_rendered_screen_cache)
+        editor.rerender
+      end
+    end
+
+    class InteractiveOutput
+      CLEAR_LINE = "\r\e[2K"
+
+      def initialize(output:, line_editor:)
+        @output, @line_editor = output, line_editor
+        @writing = Mutex.new
+        @reading = false
+      end
+
+      def readline
+        @reading = true
+        @line_editor.readline
+      ensure
+        @reading = false
+      end
+
+      def puts(text)
+        @writing.synchronize do
+          @output.write(CLEAR_LINE) if @reading
+          @output.puts(text)
+          @line_editor.redisplay if @reading
+        end
+      end
+    end
+
+    def initialize(input:, output:, interactive: nil, line_editor: LineEditor.new, &download)
       @input, @download = input, download
-      @reporter = Reporter.new(output: output)
+      interactive = input.tty? && output.tty? if interactive.nil?
+      @terminal = InteractiveOutput.new(output: output, line_editor: line_editor) if interactive
+      @reporter = Reporter.new(output: @terminal || output)
     end
 
     def run
@@ -20,7 +60,7 @@ module FetchImages
           site, url = job
           @reporter.event(:start, "#{url}")
           begin
-            code = @download.call(site, url)
+            code = @download.call(site, url, @terminal)
           rescue StandardError
             code = 1
           end
@@ -33,7 +73,7 @@ module FetchImages
         end
       end
       begin
-        @input.each_line do |line|
+        each_input_line do |line|
           url = line.strip
           break if url == ":quit"
           next if url.empty?
@@ -64,6 +104,14 @@ module FetchImages
     end
 
     private
+
+    def each_input_line
+      return @input.each_line { |line| yield line } unless @terminal
+
+      while (line = @terminal.readline)
+        yield line
+      end
+    end
 
     def site_for(url)
       uri = URI.parse(url)
